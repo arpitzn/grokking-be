@@ -5,7 +5,7 @@ from app.models.schemas import ChatRequest
 from app.services.conversation import create_conversation, insert_message
 from app.agent.graph import get_graph
 from app.agent.state import AgentState
-from app.infra.langfuse import get_langfuse_manager
+from app.infra.langfuse_callback import langfuse_handler
 from app.infra.guardrails import get_guardrails_manager
 from app.infra.llm import get_llm_client
 import json
@@ -23,7 +23,6 @@ async def chat_stream(request: ChatRequest):
     
     Returns SSE stream with token-by-token response
     """
-    langfuse = get_langfuse_manager()
     guardrails = get_guardrails_manager()
     
     # Validate input with NeMo Guardrails
@@ -47,17 +46,6 @@ async def chat_stream(request: ChatRequest):
         content=request.message
     )
     
-    # Create Langfuse trace
-    trace = langfuse.create_trace(
-        name="chat_request",
-        conversation_id=conversation_id,
-        user_id=request.user_id,
-        metadata={"message": request.message[:100]}
-    )
-    
-    # Set trace ID for spans
-    trace_id = trace.id if hasattr(trace, 'id') else None
-    
     async def event_generator():
         """Generate SSE events"""
         try:
@@ -73,12 +61,23 @@ async def chat_stream(request: ChatRequest):
                 "needs_summarization": False
             }
             
+            # Build LangGraph config with callbacks and metadata
+            # CallbackHandler will automatically create traces and spans
+            langfuse_config = {
+                "callbacks": [langfuse_handler],
+                "metadata": {
+                    "langfuse_user_id": request.user_id,
+                    "langfuse_session_id": conversation_id,
+                    "message_preview": request.message[:100]
+                }
+            }
+            
             # Get graph
             graph = get_graph()
             
-            # Stream graph execution
+            # Stream graph execution with callbacks - automatic tracing enabled
             full_response = ""
-            async for chunk in graph.astream(initial_state):
+            async for chunk in graph.astream(initial_state, config=langfuse_config):
                 # Check if this is executor output with final_response
                 if isinstance(chunk, dict):
                     # LangGraph returns state updates per node
@@ -105,8 +104,8 @@ async def chat_stream(request: ChatRequest):
         finally:
             # Ensure stream is closed
             yield "data: [DONE]\n\n"
-            # Flush Langfuse
-            langfuse.flush()
+            # Flush Langfuse events to ensure they're sent
+            langfuse_handler.flush()
     
     return StreamingResponse(
         event_generator(),

@@ -54,6 +54,10 @@ async def startup_event():
     from app.agent.graph import get_graph
     get_graph()
     logger.info("LangGraph initialized")
+    
+    # Initialize Langfuse CallbackHandler
+    from app.infra.langfuse_callback import langfuse_handler
+    logger.info("Langfuse CallbackHandler initialized")
 
 
 @app.on_event("shutdown")

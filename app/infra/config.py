@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     langfuse_secret_key: str
     langfuse_host: str = "https://cloud.langfuse.com"
     
+    # Environment for Langfuse tracing
+    environment: str = "development"  # development, staging, production
+    
     # Mem0
     mem0_api_key: str
     mem0_org_id: str
