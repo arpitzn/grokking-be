@@ -4,6 +4,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 import uuid
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -68,11 +69,28 @@ async def get_messages(
     """Get messages from a conversation"""
     db = await get_mongodb_client()
     
+    # Check if conversation exists first
+    conversation = await db.conversations.find_one({"_id": conversation_id})
+    if not conversation:
+        logger.warning(json.dumps({
+            "event": "conversation_not_found",
+            "conversation_id": conversation_id,
+            "operation": "get_messages"
+        }))
+    
     cursor = db.messages.find(
         {"conversation_id": conversation_id}
     ).sort("created_at", 1).skip(offset).limit(limit)
     
     messages = await cursor.to_list(length=limit)
+    
+    logger.info(json.dumps({
+        "event": "messages_retrieved",
+        "conversation_id": conversation_id,
+        "count": len(messages),
+        "limit": limit,
+        "offset": offset
+    }))
     
     # Convert ObjectId to string and format
     result = []
@@ -98,6 +116,19 @@ async def list_threads(user_id: str) -> List[Dict[str, Any]]:
     ).sort("updated_at", -1)
     
     conversations = await cursor.to_list(length=100)
+    
+    logger.info(json.dumps({
+        "event": "conversations_listed",
+        "user_id": user_id,
+        "count": len(conversations)
+    }))
+    
+    if len(conversations) == 0:
+        logger.info(json.dumps({
+            "event": "no_conversations_found",
+            "user_id": user_id,
+            "message": "User has no conversations yet"
+        }))
     
     result = []
     for conv in conversations:

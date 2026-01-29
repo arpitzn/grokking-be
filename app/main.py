@@ -4,12 +4,33 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import chat, knowledge, health, threads
 import logging
+import json
 
-# Configure logging
+# Configure JSON logging
+class JSONFormatter(logging.Formatter):
+    def format(self, record):
+        # If message is already JSON, pass through
+        try:
+            json.loads(record.getMessage())
+            return record.getMessage()
+        except (json.JSONDecodeError, ValueError):
+            # Otherwise, wrap in JSON
+            log_data = {
+                "timestamp": self.formatTime(record),
+                "level": record.levelname,
+                "logger": record.name,
+                "message": record.getMessage()
+            }
+            if record.exc_info:
+                log_data["exception"] = self.formatException(record.exc_info)
+            return json.dumps(log_data)
+
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    handlers=[logging.StreamHandler()]
 )
+for handler in logging.root.handlers:
+    handler.setFormatter(JSONFormatter())
 
 logger = logging.getLogger(__name__)
 

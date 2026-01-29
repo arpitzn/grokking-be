@@ -8,8 +8,12 @@ from app.agent.state import AgentState
 from app.infra.langfuse_callback import langfuse_handler
 from app.infra.guardrails import get_guardrails_manager
 from app.infra.llm import get_llm_client
+from app.utils.logging_utils import (
+    log_request_start, log_business_milestone, log_error_with_context
+)
 import json
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -23,10 +27,32 @@ async def chat_stream(request: ChatRequest):
     
     Returns SSE stream with token-by-token response
     """
+    start_time = time.time()
+    
+    # Log request start
+    log_request_start(
+        logger, "POST", "/chat/stream",
+        user_id=request.user_id,
+        body={"message": request.message[:100], "conversation_id": request.conversation_id}
+    )
+    
     guardrails = get_guardrails_manager()
+    
+    # Log guardrails validation
+    log_business_milestone(
+        logger, "guardrails_validation_start",
+        user_id=request.user_id,
+        details={"message_length": len(request.message)}
+    )
     
     # Validate input with NeMo Guardrails
     validation_result = await guardrails.validate_input(request.message, request.user_id)
+    
+    log_business_milestone(
+        logger, "guardrails_validation_complete",
+        user_id=request.user_id,
+        details={"allowed": validation_result["allowed"]}
+    )
     
     if not validation_result["allowed"]:
         raise HTTPException(
@@ -37,7 +63,13 @@ async def chat_stream(request: ChatRequest):
     # Create conversation if needed
     conversation_id = request.conversation_id
     if not conversation_id:
+        log_business_milestone(logger, "conversation_creation_start", user_id=request.user_id)
         conversation_id = await create_conversation(request.user_id)
+        log_business_milestone(
+            logger, "conversation_created",
+            user_id=request.user_id,
+            details={"conversation_id": conversation_id}
+        )
     
     # Insert user message
     user_message_id = await insert_message(
@@ -82,9 +114,26 @@ async def chat_stream(request: ChatRequest):
                 if isinstance(chunk, dict):
                     # LangGraph returns state updates per node
                     for node_name, node_output in chunk.items():
+                        # Log graph node execution
+                        log_business_milestone(
+                            logger, f"graph_node_{node_name}",
+                            user_id=request.user_id,
+                            details={"conversation_id": conversation_id}
+                        )
+                        
                         if node_name == "executor" and isinstance(node_output, dict):
                             if "final_response" in node_output:
                                 response_text = node_output["final_response"]
+                                
+                                log_business_milestone(
+                                    logger, "response_generation_complete",
+                                    user_id=request.user_id,
+                                    details={
+                                        "conversation_id": conversation_id,
+                                        "response_length": len(response_text),
+                                        "duration_ms": (time.time() - start_time) * 1000
+                                    }
+                                )
                                 
                                 # Stream response token-by-token (simplified - in production use actual streaming)
                                 # For now, send chunks of the response
@@ -95,10 +144,27 @@ async def chat_stream(request: ChatRequest):
                                     yield f"data: {json.dumps({'content': delta})}\n\n"
             
             # Send completion event
+            log_business_milestone(
+                logger, "stream_completed",
+                user_id=request.user_id,
+                details={
+                    "conversation_id": conversation_id,
+                    "total_duration_ms": (time.time() - start_time) * 1000,
+                    "response_length": len(full_response)
+                }
+            )
             yield f"data: {json.dumps({'status': 'completed'})}\n\n"
             
         except Exception as e:
-            logger.error(f"Streaming error: {e}")
+            log_error_with_context(
+                logger, e, "streaming_error",
+                context={
+                    "user_id": request.user_id,
+                    "conversation_id": conversation_id,
+                    "message": request.message[:100],
+                    "duration_ms": (time.time() - start_time) * 1000
+                }
+            )
             error_data = json.dumps({"error": str(e), "status": "error"})
             yield f"data: {error_data}\n\n"
         finally:

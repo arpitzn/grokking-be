@@ -5,6 +5,8 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from typing import List, Dict, Any
 from datetime import datetime
 import logging
+import json
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +26,11 @@ async def ingest_document(
     3. Embed each chunk with OpenAI text-embedding-3-small
     4. Store in Elasticsearch with user_id metadata using batch operations
     """
+    start_time = time.time()
     llm_client = get_llm_client()
     
     # Chunk the document
+    chunk_start = time.time()
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=500,
         chunk_overlap=50,
@@ -34,9 +38,18 @@ async def ingest_document(
     )
     
     chunks = text_splitter.split_text(file_content)
-    logger.info(f"Split document into {len(chunks)} chunks")
+    chunk_duration = (time.time() - chunk_start) * 1000
+    
+    logger.info(json.dumps({
+        "event": "document_chunked",
+        "user_id": user_id,
+        "filename": filename,
+        "chunk_count": len(chunks),
+        "duration_ms": round(chunk_duration, 2)
+    }))
     
     # Collect all documents for batch indexing
+    embed_start = time.time()
     documents = []
     for idx, chunk in enumerate(chunks):
         # Create embedding
@@ -52,11 +65,32 @@ async def ingest_document(
                 "created_at": datetime.utcnow().isoformat()
             }
         })
+    embed_duration = (time.time() - embed_start) * 1000
+    
+    logger.info(json.dumps({
+        "event": "embeddings_generated",
+        "user_id": user_id,
+        "filename": filename,
+        "chunk_count": len(chunks),
+        "duration_ms": round(embed_duration, 2),
+        "avg_ms_per_chunk": round(embed_duration / len(chunks), 2) if chunks else 0
+    }))
     
     # Batch index all documents
+    index_start = time.time()
     results = await es_client.batch_index_documents(documents)
+    index_duration = (time.time() - index_start) * 1000
     
-    logger.info(f"Ingested {results['successful']}/{results['total']} chunks for user {user_id}, file {filename}")
+    logger.info(json.dumps({
+        "event": "document_indexed",
+        "user_id": user_id,
+        "filename": filename,
+        "successful": results['successful'],
+        "failed": results['failed'],
+        "total": results['total'],
+        "duration_ms": round(index_duration, 2),
+        "total_duration_ms": round((time.time() - start_time) * 1000, 2)
+    }))
     
     return {
         "document_id": None,  # Batch indexing doesn't return individual IDs
