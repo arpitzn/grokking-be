@@ -18,16 +18,28 @@ class Mem0Service:
     
     async def ping(self) -> bool:
         """
-        Check if API key is valid using ping() method
+        Check if API key is valid using a lightweight search operation
         
-        Validates API key and populates org/project IDs
+        Uses the documented search API with minimal query as a health check.
+        This is more reliable than using internal _validate_api_key method.
         """
         try:
-            # Run ping in thread pool since it might be synchronous
-            result = await asyncio.to_thread(self.client.ping)
-            return bool(result)
+            # Use search with minimal query as health check
+            # This validates API key and connectivity using documented API
+            result = await asyncio.to_thread(
+                self.client.search,
+                query="health_check",
+                filters={"user_id": "health_check_user"},
+                limit=1
+            )
+            # If we get a response (even empty results), API is accessible
+            return True
         except Exception as e:
-            logger.error(f"Mem0 ping failed: {e}")
+            logger.error(f"Mem0 health check failed: {e}", exc_info=True)
+            # Check if it's an authentication error
+            error_msg = str(e).lower()
+            if any(x in error_msg for x in ["401", "403", "unauthorized", "authentication", "invalid", "api key"]):
+                logger.error("Mem0 API key appears to be invalid or expired")
             return False
     
     async def add_interaction(

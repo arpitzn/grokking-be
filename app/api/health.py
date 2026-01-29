@@ -18,7 +18,7 @@ from app.infra.elasticsearch import get_elasticsearch_client
 from app.infra.mem0 import get_mem0_client
 from app.infra.langfuse import get_langfuse_client
 from app.infra.llm import get_llm_client
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import asyncio
 from langchain_core.messages import HumanMessage
@@ -29,10 +29,10 @@ router = APIRouter(tags=["health"])
 
 # Timeout configurations for health checks - prevents hanging if services are slow
 # These are optimized for parallel execution to keep total time under 3 seconds
-MONGODB_TIMEOUT = 3.0  # Ping is instant if healthy
-ELASTICSEARCH_TIMEOUT = 5.0  # Cluster health check needs more time
-MEM0_TIMEOUT = 3.0  # Ping is faster, reduced from 5s
-LANGFUSE_TIMEOUT = 5.0  # Auth check
+MONGODB_TIMEOUT = 10.0  # Ping is instant if healthy
+ELASTICSEARCH_TIMEOUT = 15.0  # Cluster health check needs more time
+MEM0_TIMEOUT = 15.0  # Ping is faster, reduced from 5s
+LANGFUSE_TIMEOUT = 10.0  # Auth check
 OPENAI_TIMEOUT = 10.0  # LLM API call (reduced from 5s for parallel execution)
 
 
@@ -123,7 +123,7 @@ async def health_check():
     async def check_mem0():
         try:
             client = await get_mem0_client()
-            mem0_healthy = await with_timeout(client.health_check(), MEM0_TIMEOUT, "Mem0")
+            mem0_healthy = await with_timeout(client.ping(), MEM0_TIMEOUT, "Mem0")
             return {
                 "status": "healthy" if mem0_healthy else "degraded",
                 "message": "API accessible" if mem0_healthy else "API unreachable"
@@ -131,8 +131,14 @@ async def health_check():
         except TimeoutError:
             return {"status": "degraded", "message": "Connection timeout"}
         except Exception as e:
-            logger.error(f"Mem0 health check failed: {e}")
-            return {"status": "degraded", "message": "API unreachable"}
+            logger.error(f"Mem0 health check failed: {e}", exc_info=True)
+            # Detect auth errors vs network issues for better debugging
+            error_msg = str(e).lower()
+            is_auth_error = any(x in error_msg for x in ["401", "403", "unauthorized", "authentication", "invalid", "api key"])
+            return {
+                "status": "degraded",
+                "message": "Invalid API key" if is_auth_error else "API unreachable"
+            }
     
     # Langfuse check - LLM observability platform for tracing and monitoring
     # We validate credentials because wrong keys = no observability = harder debugging!
@@ -229,5 +235,5 @@ async def health_check():
     return HealthCheckResponse(
         status=status,
         checks=checks,
-        timestamp=datetime.utcnow().isoformat()  # When this check ran
+        timestamp=datetime.now(timezone.utc).isoformat() # When this check ran
     )
