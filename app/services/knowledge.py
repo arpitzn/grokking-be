@@ -1,8 +1,9 @@
 """Knowledge service for RAG ingestion and retrieval"""
-from app.infra.elasticsearch import get_elasticsearch_client
+from app.infra.elasticsearch import ElasticsearchDep, ElasticsearchClient
 from app.infra.llm import get_llm_client
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from typing import List, Dict, Any
+from datetime import datetime
 import logging
 
 logger = logging.getLogger(__name__)
@@ -11,7 +12,8 @@ logger = logging.getLogger(__name__)
 async def ingest_document(
     user_id: str,
     file_content: str,
-    filename: str
+    filename: str,
+    es_client: ElasticsearchClient
 ) -> Dict[str, Any]:
     """
     Ingest a document into Elasticsearch for RAG
@@ -20,9 +22,8 @@ async def ingest_document(
     1. Parse text content
     2. Chunk with RecursiveCharacterTextSplitter (chunk_size=500, overlap=50)
     3. Embed each chunk with OpenAI text-embedding-3-small
-    4. Store in Elasticsearch with user_id metadata
+    4. Store in Elasticsearch with user_id metadata using batch operations
     """
-    es_client = await get_elasticsearch_client()
     llm_client = get_llm_client()
     
     # Chunk the document
@@ -35,40 +36,41 @@ async def ingest_document(
     chunks = text_splitter.split_text(file_content)
     logger.info(f"Split document into {len(chunks)} chunks")
     
-    # Embed and index each chunk
-    chunk_ids = []
+    # Collect all documents for batch indexing
+    documents = []
     for idx, chunk in enumerate(chunks):
         # Create embedding
         embedding = await llm_client.embeddings(chunk, model="text-embedding-3-small")
         
-        # Index in Elasticsearch
-        metadata = {
-            "filename": filename,
-            "chunk_index": idx,
-            "created_at": datetime.utcnow().isoformat()
-        }
-        
-        chunk_id = await es_client.index_document(
-            user_id=user_id,
-            content=chunk,
-            embedding=embedding,
-            metadata=metadata
-        )
-        chunk_ids.append(chunk_id)
+        documents.append({
+            "user_id": user_id,
+            "content": chunk,
+            "embedding": embedding,
+            "metadata": {
+                "filename": filename,
+                "chunk_index": idx,
+                "created_at": datetime.utcnow().isoformat()
+            }
+        })
     
-    logger.info(f"Ingested {len(chunk_ids)} chunks for user {user_id}, file {filename}")
+    # Batch index all documents
+    results = await es_client.batch_index_documents(documents)
+    
+    logger.info(f"Ingested {results['successful']}/{results['total']} chunks for user {user_id}, file {filename}")
     
     return {
-        "document_id": chunk_ids[0] if chunk_ids else None,
-        "chunk_count": len(chunk_ids),
-        "status": "success"
+        "document_id": None,  # Batch indexing doesn't return individual IDs
+        "chunk_count": results["successful"],
+        "status": "success" if results["failed"] == 0 else "partial",
+        "failed_count": results["failed"]
     }
 
 
 async def retrieve_chunks(
     user_id: str,
     query: str,
-    top_k: int = 3
+    top_k: int = 3,
+    es_client: ElasticsearchClient = None
 ) -> List[Dict[str, Any]]:
     """
     Retrieve relevant chunks from Elasticsearch using vector search
@@ -78,7 +80,11 @@ async def retrieve_chunks(
     2. Elasticsearch kNN search with user_id filter
     3. Return top_k chunks with metadata
     """
-    es_client = await get_elasticsearch_client()
+    # For backward compatibility, allow optional client parameter
+    if es_client is None:
+        from app.infra.elasticsearch import get_elasticsearch_client
+        es_client = await get_elasticsearch_client()
+    
     llm_client = get_llm_client()
     
     # Embed query
@@ -93,6 +99,3 @@ async def retrieve_chunks(
     
     logger.info(f"Retrieved {len(results)} chunks for query: {query[:50]}...")
     return results
-
-
-from datetime import datetime

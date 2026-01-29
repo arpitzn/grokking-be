@@ -2,6 +2,7 @@
 from fastapi import APIRouter, HTTPException
 from app.models.schemas import KnowledgeUploadRequest, KnowledgeUploadResponse
 from app.services.knowledge import ingest_document
+from app.infra.elasticsearch import ElasticsearchDep
 import logging
 
 logger = logging.getLogger(__name__)
@@ -10,7 +11,10 @@ router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 
 
 @router.post("/upload", response_model=KnowledgeUploadResponse)
-async def upload_knowledge(request: KnowledgeUploadRequest):
+async def upload_knowledge(
+    request: KnowledgeUploadRequest,
+    es_client: ElasticsearchDep
+):
     """
     Upload a document for RAG ingestion
     
@@ -24,7 +28,8 @@ async def upload_knowledge(request: KnowledgeUploadRequest):
         result = await ingest_document(
             user_id=request.user_id,
             file_content=content,
-            filename=request.filename
+            filename=request.filename,
+            es_client=es_client
         )
         
         return KnowledgeUploadResponse(

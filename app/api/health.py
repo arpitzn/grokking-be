@@ -43,14 +43,20 @@ async def health_check():
     # Elasticsearch check
     try:
         es_client = await get_elasticsearch_client()
-        es_healthy = await es_client.health_check()
+        health_info = await es_client.health_check()
+        
         checks["elasticsearch"] = {
-            "status": "healthy" if es_healthy else "degraded",
-            "message": "Cluster healthy" if es_healthy else "Cluster unhealthy"
+            "status": health_info["status"],
+            "cluster_name": health_info.get("cluster_name"),
+            "version": health_info.get("version"),
+            "cluster_health": health_info.get("cluster_health"),
+            "nodes": health_info.get("number_of_nodes"),
+            "auth_configured": health_info.get("authentication_configured"),
+            "message": health_info.get("error", "Connected")
         }
     except Exception as e:
         checks["elasticsearch"] = {
-            "status": "degraded",
+            "status": "unhealthy",
             "message": str(e)
         }
     
