@@ -1,38 +1,42 @@
 # Core Framework
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-pydantic==2.5.0
-pydantic-settings==2.1.0
+fastapi==0.128.0
+uvicorn==0.34.0
+pydantic==2.10.6
+pydantic-settings==2.7.1
 
 # LangGraph & LangChain
-langgraph>=0.2.0
-langchain>=0.1.20
-langchain-openai>=0.1.0
-langchain-community>=0.0.10
+langgraph==0.5.4
+langchain==0.3.27
+langchain-core==0.3.72
+langchain-openai==0.3.28
+langchain-community==0.3.27
+langchain-text-splitters==0.3.9
 
 # LLM Providers
-openai==1.3.0
+openai==1.86.0
 
 # Vector Store
-elasticsearch==8.11.0
+elasticsearch==8.10.0
 
 # Database
-pymongo==4.6.0
-motor==3.3.2  # Async MongoDB driver
+pymongo==4.11
+motor==3.7.0  # Async MongoDB driver
+beanie==1.29.0
 
 # Guardrails
-nemoguardrails==0.5.0
+nemoguardrails==0.20.0
 
 # Observability
-langfuse>=3.8.1
+langfuse==3.8.1
 
 # Semantic Memory
 mem0ai==0.1.0  # Or appropriate Mem0 SDK
 
 # Utilities
-python-dotenv==1.0.0
-httpx==0.25.0  # For async HTTP requests
+python-dotenv==1.0.1
+httpx==0.28.1  # For async HTTP requests
 tenacity==8.2.3  # Retry logic
+tiktoken==0.8.0
 
 # Testing
 pytest==7.4.3
