@@ -66,19 +66,28 @@ async def shutdown_event():
     logger.info("Shutting down...")
     
     # Close MongoDB connection
-    from app.infra.mongo import mongodb_client
-    if mongodb_client:
-        await mongodb_client.close()
+    try:
+        from app.infra.mongo import mongodb_client
+        if mongodb_client:
+            await mongodb_client.close()
+    except Exception as e:
+        logger.warning(f"Error closing MongoDB: {e}")
     
     # Close Elasticsearch connection
-    from app.infra.elasticsearch import elasticsearch_client
-    if elasticsearch_client:
-        await elasticsearch_client.close()
+    try:
+        from app.infra.elasticsearch import _elasticsearch_client
+        if _elasticsearch_client:
+            await _elasticsearch_client.close()
+    except Exception as e:
+        logger.warning(f"Error closing Elasticsearch: {e}")
     
     # Close Mem0 connection
-    from app.infra.mem0 import mem0_client
-    if mem0_client:
-        await mem0_client.close()
+    try:
+        from app.infra.mem0 import mem0_client
+        if mem0_client:
+            await mem0_client.close()
+    except Exception as e:
+        logger.warning(f"Error closing Mem0: {e}")
     
     logger.info("Shutdown complete")
 
