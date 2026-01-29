@@ -1,0 +1,40 @@
+# NeMo Guardrails Colang definitions
+
+# Input Rails
+
+define flow jailbreak detection
+  user said something
+  if $user_message contains jailbreak patterns
+    bot refuse jailbreak attempt
+    stop
+
+define flow pii detection
+  user said something
+  if $user_message contains pii (ssn, credit card, email)
+    bot inform "Please don't share personal information"
+    stop
+
+define flow topic filtering
+  user said something
+  if $user_message is off-topic
+    bot inform "I can only help with company-related questions"
+    stop
+
+# Output Rails
+
+define flow fact checking
+  bot said something
+  if $bot_message contains factual claims
+    check facts against knowledge base
+    if facts are incorrect
+      bot correct response
+      
+define flow hallucination detection
+  bot said something
+  if $bot_message contradicts retrieved context
+    bot revise response with grounded information
+
+define flow harmful content filtering
+  bot said something
+  if $bot_message contains harmful content
+    bot refuse and provide safe alternative

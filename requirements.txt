@@ -1,0 +1,39 @@
+# Core Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# LangGraph & LangChain
+langgraph==0.0.20
+langchain==0.1.0
+langchain-openai==0.0.2
+langchain-community==0.0.10
+
+# LLM Providers
+openai==1.3.0
+
+# Vector Store
+elasticsearch==8.11.0
+
+# Database
+pymongo==4.6.0
+motor==3.3.2  # Async MongoDB driver
+
+# Guardrails
+nemoguardrails==0.5.0
+
+# Observability
+langfuse==2.0.0
+
+# Semantic Memory
+mem0ai==0.1.0  # Or appropriate Mem0 SDK
+
+# Utilities
+python-dotenv==1.0.0
+httpx==0.25.0  # For async HTTP requests
+tenacity==8.2.3  # Retry logic
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
