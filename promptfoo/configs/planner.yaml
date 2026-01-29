@@ -1,0 +1,184 @@
+# Planner Node Evaluation Configuration
+# Tests query classification accuracy with different models and temperatures
+
+description: "Planner Query Classification Evaluation"
+
+providers:
+  # GPT-3.5 Turbo variants
+  - id: "python:promptfoo/providers/planner_provider.py"
+    label: "GPT-3.5 (t=0.0)"
+    config:
+      model: gpt-3.5-turbo
+      temperature: 0.0
+
+  - id: "python:promptfoo/providers/planner_provider.py"
+    label: "GPT-3.5 (t=0.3)"
+    config:
+      model: gpt-3.5-turbo
+      temperature: 0.3
+
+  - id: "python:promptfoo/providers/planner_provider.py"
+    label: "GPT-3.5 (t=0.5)"
+    config:
+      model: gpt-3.5-turbo
+      temperature: 0.5
+
+  # GPT-4 variants
+  - id: "python:promptfoo/providers/planner_provider.py"
+    label: "GPT-4 (t=0.0)"
+    config:
+      model: gpt-4
+      temperature: 0.0
+
+  - id: "python:promptfoo/providers/planner_provider.py"
+    label: "GPT-4 (t=0.3)"
+    config:
+      model: gpt-4
+      temperature: 0.3
+
+  - id: "python:promptfoo/providers/planner_provider.py"
+    label: "GPT-4 (t=0.5)"
+    config:
+      model: gpt-4
+      temperature: 0.5
+
+  # GPT-4 Turbo
+  - id: "python:promptfoo/providers/planner_provider.py"
+    label: "GPT-4-Turbo (t=0.3)"
+    config:
+      model: gpt-4-turbo
+      temperature: 0.3
+
+# Use inline prompt that passes query to provider
+prompts:
+  - "{{query}}"
+
+# Inline test cases for planner
+tests:
+  # Internal RAG queries
+  - description: "Internal - Director meeting reference"
+    vars:
+      query: "What did our director say in yesterday's meeting?"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'internal';
+
+  - description: "Internal - Q4 report query"
+    vars:
+      query: "What are the key findings in our Q4 report?"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'internal';
+
+  - description: "Internal - Company policy"
+    vars:
+      query: "What is our company's policy on remote work?"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'internal';
+
+  - description: "Internal - Uploaded document"
+    vars:
+      query: "Summarize the document I uploaded yesterday"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'internal';
+
+  # External search queries
+  - description: "External - Historical fact"
+    vars:
+      query: "Who was the President of India in 2020?"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'external';
+
+  - description: "External - Geography"
+    vars:
+      query: "What is the capital of France?"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'external';
+
+  - description: "External - Famous person"
+    vars:
+      query: "Who is Elon Musk?"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'external';
+
+  - description: "External - Current events"
+    vars:
+      query: "What are the latest news headlines?"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'external';
+
+  # Conversational queries
+  - description: "Conversational - Greeting"
+    vars:
+      query: "Hello!"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'none';
+
+  - description: "Conversational - Thanks"
+    vars:
+      query: "Thanks, that was helpful!"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'none';
+
+  - description: "Conversational - Clarification"
+    vars:
+      query: "Can you explain that differently?"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'none';
+
+  - description: "Conversational - Goodbye"
+    vars:
+      query: "Goodbye!"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'none';
+
+evaluateOptions:
+  maxConcurrency: 4
+  showProgressBar: true
+  cache: true

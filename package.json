@@ -1,0 +1,23 @@
+{
+  "name": "hackathon-grokking-promptfoo",
+  "version": "1.0.0",
+  "description": "PromptFoo evaluation suite for Hackathon AI Agent",
+  "private": true,
+  "scripts": {
+    "promptfoo:eval": "promptfoo eval",
+    "promptfoo:eval:planner": "promptfoo eval -c promptfoo/configs/planner.yaml",
+    "promptfoo:eval:executor": "promptfoo eval -c promptfoo/configs/executor.yaml",
+    "promptfoo:eval:guardrails": "promptfoo eval -c promptfoo/configs/guardrails.yaml",
+    "promptfoo:eval:rag": "promptfoo eval -c promptfoo/configs/rag.yaml",
+    "promptfoo:eval:e2e": "promptfoo eval -c promptfoo/configs/e2e.yaml",
+    "promptfoo:view": "promptfoo view",
+    "promptfoo:share": "promptfoo share",
+    "promptfoo:cache:clear": "promptfoo cache clear"
+  },
+  "devDependencies": {
+    "promptfoo": "^0.120.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

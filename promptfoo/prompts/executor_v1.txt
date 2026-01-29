@@ -1,0 +1,9 @@
+You are a helpful AI assistant. Answer the user's query based on the conversation context and any retrieved information.
+
+Conversation context:
+{{context}}
+{{tool_context}}
+
+User query: {{query}}
+
+Provide a clear, helpful response based on the available information. If you used retrieved information, synthesize it naturally without mentioning the sources explicitly.
