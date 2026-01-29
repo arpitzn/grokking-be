@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 async def build_working_memory(
     conversation_id: str,
     user_id: str,
+    current_query: Optional[str] = None,
     include_mem0: bool = True
 ) -> List[Dict[str, str]]:
     """
@@ -47,16 +48,24 @@ async def build_working_memory(
             "content": msg["content"]
         })
     
-    # 4. Optionally query Mem0 for user preferences
-    if include_mem0:
+    # 4. Optionally query Mem0 for relevant context using dynamic semantic search
+    if include_mem0 and current_query:
         try:
-            mem0_results = await read_from_mem0(user_id, "user preferences")
+            # Use current query for semantic search to get relevant context
+            mem0_results = await read_from_mem0(user_id, current_query)
             if mem0_results:
-                preferences_text = "\n".join([m.get("memory", "") for m in mem0_results[:3]])
-                if preferences_text:
+                # Extract memory content from results
+                context_items = []
+                for m in mem0_results[:3]:
+                    memory_content = m.get("memory", "") or m.get("content", "")
+                    if memory_content:
+                        context_items.append(memory_content)
+                
+                if context_items:
+                    context_text = "\n".join(context_items)
                     working_memory.insert(1, {
                         "role": "system",
-                        "content": f"User preferences: {preferences_text}"
+                        "content": f"Relevant context from past conversations: {context_text}"
                     })
         except Exception as e:
             logger.warning(f"Mem0 query failed: {e}. Continuing without Mem0 context.")

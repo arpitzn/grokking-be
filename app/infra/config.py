@@ -26,7 +26,6 @@ class Settings(BaseSettings):
     
     # Mem0
     mem0_api_key: str
-    mem0_org_id: str
     
     # Elasticsearch
     elasticsearch_node: str

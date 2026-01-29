@@ -21,7 +21,7 @@ class ElasticsearchClient:
         
         # Add HTTP Basic Auth if credentials provided
         if settings.elasticsearch_username and settings.elasticsearch_password:
-            connection_params["http_auth"] = (
+            connection_params["basic_auth"] = (
                 settings.elasticsearch_username,
                 settings.elasticsearch_password
             )

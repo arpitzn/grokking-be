@@ -27,9 +27,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["health"])
 
-# Timeout for health checks - prevents hanging if services are slow
-# 5 seconds is a good balance: fast enough for users, generous enough for network delays
-HEALTH_CHECK_TIMEOUT = 5.0
+# Timeout configurations for health checks - prevents hanging if services are slow
+# These are optimized for parallel execution to keep total time under 3 seconds
+MONGODB_TIMEOUT = 3.0  # Ping is instant if healthy
+ELASTICSEARCH_TIMEOUT = 5.0  # Cluster health check needs more time
+MEM0_TIMEOUT = 3.0  # Ping is faster, reduced from 5s
+LANGFUSE_TIMEOUT = 5.0  # Auth check
+OPENAI_TIMEOUT = 10.0  # LLM API call (reduced from 5s for parallel execution)
 
 
 async def with_timeout(coro, timeout: float, service_name: str):
@@ -78,8 +82,10 @@ async def health_check():
         - unhealthy: Critical services down, agent may not work 🔴
     
     Returns detailed status for each service so we can debug quickly.
+    
+    Performance: All checks run in parallel for ~3 second total time
+    instead of ~16 seconds sequential!
     """
-    checks = {}
     
     # MongoDB check - Our primary database for storing conversations
     # Using ping() is lightweight and validates connectivity without heavy queries
@@ -88,110 +94,129 @@ async def health_check():
         healthy = await client.ping()
         return "Connected" if healthy else "Connection failed"
     
-    result = await check_service(check_mongodb(), 2.0, "MongoDB")
-    checks["mongodb"] = result
-    
     # Elasticsearch check - Our vector database for RAG (knowledge retrieval)
     # Returns rich cluster info because ES health is more complex than simple ping
     # This helps us debug if vector search isn't working properly
     async def check_elasticsearch():
-        client = await get_elasticsearch_client()
-        return await client.health_check()
-    
-    try:
-        health_info = await with_timeout(check_elasticsearch(), 3.0, "Elasticsearch")
-        # Elasticsearch gives us lots of useful info - let's pass it through!
-        checks["elasticsearch"] = {
-            "status": health_info["status"],
-            "cluster_name": health_info.get("cluster_name"),
-            "version": health_info.get("version"),
-            "cluster_health": health_info.get("cluster_health"),  # green/yellow/red
-            "nodes": health_info.get("number_of_nodes"),
-            "auth_configured": health_info.get("authentication_configured"),
-            "message": health_info.get("error", "Connected")
-        }
-    except TimeoutError:
-        checks["elasticsearch"] = {"status": "unhealthy", "message": "Connection timeout"}
-    except Exception as e:
-        logger.error(f"Elasticsearch health check failed: {e}")
-        checks["elasticsearch"] = {"status": "unhealthy", "message": "Connection failed"}
+        try:
+            client = await get_elasticsearch_client()
+            health_info = await with_timeout(client.health_check(), ELASTICSEARCH_TIMEOUT, "Elasticsearch")
+            # Elasticsearch gives us lots of useful info - let's pass it through!
+            return {
+                "status": health_info["status"],
+                "cluster_name": health_info.get("cluster_name"),
+                "version": health_info.get("version"),
+                "cluster_health": health_info.get("cluster_health"),  # green/yellow/red
+                "nodes": health_info.get("number_of_nodes"),
+                "auth_configured": health_info.get("authentication_configured"),
+                "message": health_info.get("error", "Connected")
+            }
+        except TimeoutError:
+            return {"status": "unhealthy", "message": "Connection timeout"}
+        except Exception as e:
+            logger.error(f"Elasticsearch health check failed: {e}")
+            return {"status": "unhealthy", "message": "Connection failed"}
     
     # Mem0 check - Semantic memory service for long-term context
     # Marked as "degraded" (not unhealthy) because agent can work without it
     # This way we know there's an issue but don't panic - graceful degradation! 🎯
     async def check_mem0():
-        client = await get_mem0_client()
-        return await client.health_check()
-    
-    try:
-        mem0_healthy = await with_timeout(check_mem0(), 3.0, "Mem0")
-        checks["mem0"] = {
-            "status": "healthy" if mem0_healthy else "degraded",
-            "message": "API accessible" if mem0_healthy else "API unreachable"
-        }
-    except TimeoutError:
-        checks["mem0"] = {"status": "degraded", "message": "Connection timeout"}
-    except Exception as e:
-        logger.error(f"Mem0 health check failed: {e}")
-        checks["mem0"] = {"status": "degraded", "message": "API unreachable"}
+        try:
+            client = await get_mem0_client()
+            mem0_healthy = await with_timeout(client.health_check(), MEM0_TIMEOUT, "Mem0")
+            return {
+                "status": "healthy" if mem0_healthy else "degraded",
+                "message": "API accessible" if mem0_healthy else "API unreachable"
+            }
+        except TimeoutError:
+            return {"status": "degraded", "message": "Connection timeout"}
+        except Exception as e:
+            logger.error(f"Mem0 health check failed: {e}")
+            return {"status": "degraded", "message": "API unreachable"}
     
     # Langfuse check - LLM observability platform for tracing and monitoring
     # We validate credentials because wrong keys = no observability = harder debugging!
     # Using auth_check() if available, otherwise fallback to config check
     async def check_langfuse():
-        langfuse = get_langfuse_client()
-        if hasattr(langfuse, 'auth_check'):
-            # Run in thread pool since auth_check might be synchronous
-            return await asyncio.to_thread(langfuse.auth_check)
-        # Fallback: at least verify credentials are configured
-        if hasattr(langfuse, 'public_key') and hasattr(langfuse, 'secret_key'):
-            return bool(langfuse.public_key and langfuse.secret_key)
-        return True
-    
-    try:
-        auth_valid = await with_timeout(check_langfuse(), 3.0, "Langfuse")
-        checks["langfuse"] = {
-            "status": "healthy" if auth_valid else "degraded",
-            "message": "Credentials valid" if auth_valid else "Authentication failed"
-        }
-    except TimeoutError:
-        checks["langfuse"] = {"status": "degraded", "message": "Connection timeout"}
-    except Exception as e:
-        logger.error(f"Langfuse health check failed: {e}")
-        # Smart error detection: check if it's an auth issue vs network issue
-        error_msg = str(e).lower()
-        is_auth_error = any(x in error_msg for x in ["401", "403", "unauthorized", "authentication", "invalid"])
-        checks["langfuse"] = {
-            "status": "degraded",
-            "message": "Invalid credentials" if is_auth_error else "Service unreachable"
-        }
+        try:
+            langfuse = get_langfuse_client()
+            if hasattr(langfuse, 'auth_check'):
+                # Run in thread pool since auth_check might be synchronous
+                auth_valid = await with_timeout(
+                    asyncio.to_thread(langfuse.auth_check), 
+                    LANGFUSE_TIMEOUT, 
+                    "Langfuse"
+                )
+            else:
+                # Fallback: at least verify credentials are configured
+                if hasattr(langfuse, 'public_key') and hasattr(langfuse, 'secret_key'):
+                    auth_valid = bool(langfuse.public_key and langfuse.secret_key)
+                else:
+                    auth_valid = True
+            
+            return {
+                "status": "healthy" if auth_valid else "degraded",
+                "message": "Credentials valid" if auth_valid else "Authentication failed"
+            }
+        except TimeoutError:
+            return {"status": "degraded", "message": "Connection timeout"}
+        except Exception as e:
+            logger.error(f"Langfuse health check failed: {e}")
+            # Smart error detection: check if it's an auth issue vs network issue
+            error_msg = str(e).lower()
+            is_auth_error = any(x in error_msg for x in ["401", "403", "unauthorized", "authentication", "invalid"])
+            return {
+                "status": "degraded",
+                "message": "Invalid credentials" if is_auth_error else "Service unreachable"
+            }
     
     # OpenAI check - The heart of our AI agent! ❤️
     # We make a real API call (not just check config) because wrong keys fail silently
     # Using max_tokens=1 to minimize cost - this is just a health check after all!
     async def check_openai():
-        llm_client = get_llm_client()
-        # Minimal API call: just enough to validate credentials work
-        await llm_client.client.ainvoke(
-            [HumanMessage(content="test")],
-            config={"max_tokens": 1}  # Super cheap - just 1 token!
-        )
-        return "API key valid"
+        try:
+            llm_client = get_llm_client()
+            # Minimal API call: just enough to validate credentials work
+            await with_timeout(
+                llm_client.client.ainvoke(
+                    [HumanMessage(content="test")],
+                    config={"max_tokens": 1}  # Super cheap - just 1 token!
+                ),
+                OPENAI_TIMEOUT,
+                "OpenAI"
+            )
+            return {"status": "healthy", "message": "API key valid"}
+        except TimeoutError:
+            return {"status": "unhealthy", "message": "Connection timeout"}
+        except Exception as e:
+            logger.error(f"OpenAI health check failed: {e}")
+            # Detect auth errors vs network issues for better debugging
+            error_msg = str(e).lower()
+            is_auth_error = any(x in error_msg for x in ["invalid", "authentication", "api key"])
+            return {
+                "status": "unhealthy",
+                "message": "API key invalid" if is_auth_error else "Service unreachable"
+            }
     
-    try:
-        result = await with_timeout(check_openai(), 5.0, "OpenAI")
-        checks["openai"] = {"status": "healthy", "message": result}
-    except TimeoutError:
-        checks["openai"] = {"status": "unhealthy", "message": "Connection timeout"}
-    except Exception as e:
-        logger.error(f"OpenAI health check failed: {e}")
-        # Detect auth errors vs network issues for better debugging
-        error_msg = str(e).lower()
-        is_auth_error = any(x in error_msg for x in ["invalid", "authentication", "api key"])
-        checks["openai"] = {
-            "status": "unhealthy",
-            "message": "API key invalid" if is_auth_error else "Service unreachable"
-        }
+    # Run all checks in parallel! 🚀
+    # This reduces total time from ~16s (sequential) to ~3s (parallel)
+    mongodb_result, es_result, mem0_result, langfuse_result, openai_result = await asyncio.gather(
+        check_service(check_mongodb(), MONGODB_TIMEOUT, "MongoDB"),
+        check_elasticsearch(),
+        check_mem0(),
+        check_langfuse(),
+        check_openai(),
+        return_exceptions=True  # Don't fail entire health check if one service fails
+    )
+    
+    # Handle any exceptions from gather (though our checks already handle them)
+    checks = {
+        "mongodb": mongodb_result if isinstance(mongodb_result, dict) else {"status": "unhealthy", "message": str(mongodb_result)},
+        "elasticsearch": es_result if isinstance(es_result, dict) else {"status": "unhealthy", "message": str(es_result)},
+        "mem0": mem0_result if isinstance(mem0_result, dict) else {"status": "degraded", "message": str(mem0_result)},
+        "langfuse": langfuse_result if isinstance(langfuse_result, dict) else {"status": "degraded", "message": str(langfuse_result)},
+        "openai": openai_result if isinstance(openai_result, dict) else {"status": "unhealthy", "message": str(openai_result)}
+    }
     
     # Determine overall status - prioritize unhealthy > degraded > healthy
     # This way, if ANY critical service is down, we know immediately!

@@ -1,4 +1,5 @@
 """FastAPI application entry point"""
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import chat, knowledge, health, threads
@@ -12,32 +13,11 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-# Create FastAPI app
-app = FastAPI(
-    title="Hackathon AI Agent Backend",
-    description="Production-inspired AI agent with LangGraph, streaming, and observability",
-    version="0.1.0"
-)
 
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # For POC, allow all origins
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Include routers
-app.include_router(chat.router)
-app.include_router(knowledge.router)
-app.include_router(health.router)
-app.include_router(threads.router)
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize services on startup"""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup and shutdown events"""
+    # Startup
     logger.info("Starting Hackathon AI Agent Backend...")
     
     # Initialize MongoDB connection
@@ -58,11 +38,18 @@ async def startup_event():
     # Initialize Langfuse CallbackHandler
     from app.infra.langfuse_callback import langfuse_handler
     logger.info("Langfuse CallbackHandler initialized")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on shutdown"""
+    
+    # Validate Mem0 connection
+    try:
+        from app.infra.mem0 import get_mem0_client
+        mem0_client = await get_mem0_client()
+        logger.info("Mem0 client initialized")
+    except Exception as e:
+        logger.warning(f"Mem0 initialization failed: {e} - service will be degraded")
+    
+    yield  # Application runs here
+    
+    # Shutdown
     logger.info("Shutting down...")
     
     # Close MongoDB connection
@@ -83,13 +70,37 @@ async def shutdown_event():
     
     # Close Mem0 connection
     try:
-        from app.infra.mem0 import mem0_client
-        if mem0_client:
-            await mem0_client.close()
+        from app.infra.mem0 import mem0_service
+        if mem0_service:
+            await mem0_service.close()
     except Exception as e:
         logger.warning(f"Error closing Mem0: {e}")
     
     logger.info("Shutdown complete")
+
+
+# Create FastAPI app with lifespan
+app = FastAPI(
+    title="Hackathon AI Agent Backend",
+    description="Production-inspired AI agent with LangGraph, streaming, and observability",
+    version="0.1.0",
+    lifespan=lifespan
+)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # For POC, allow all origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Include routers
+app.include_router(chat.router)
+app.include_router(knowledge.router)
+app.include_router(health.router)
+app.include_router(threads.router)
 
 
 @app.get("/")

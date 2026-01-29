@@ -20,6 +20,7 @@ async def memory_node(state: AgentState) -> AgentState:
         working_memory = await build_working_memory(
             conversation_id=state["conversation_id"],
             user_id=state["user_id"],
+            current_query=state.get("query"),
             include_mem0=True
         )
         
