@@ -1,7 +1,7 @@
 """Conversation service for MongoDB CRUD operations"""
 from app.infra.mongo import get_mongodb_client
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, UTC
 import uuid
 import logging
 import json
@@ -18,8 +18,8 @@ async def create_conversation(user_id: str, title: Optional[str] = None) -> str:
         "_id": conversation_id,
         "user_id": user_id,
         "title": title or "New Conversation",
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
+        "created_at": datetime.now(UTC),
+        "updated_at": datetime.now(UTC),
         "message_count": 0
     }
     
@@ -43,7 +43,7 @@ async def insert_message(
         "conversation_id": conversation_id,
         "role": role,  # "user" | "assistant" | "system"
         "content": content,
-        "created_at": datetime.utcnow(),
+        "created_at": datetime.now(UTC),
         "metadata": metadata or {}
     }
     
@@ -54,7 +54,7 @@ async def insert_message(
         {"_id": conversation_id},
         {
             "$inc": {"message_count": 1},
-            "$set": {"updated_at": datetime.utcnow()}
+            "$set": {"updated_at": datetime.now(UTC)}
         }
     )
     

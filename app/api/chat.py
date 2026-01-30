@@ -8,7 +8,7 @@ import time
 from app.agent.graph import get_graph
 from app.agent.state import AgentState
 from app.infra.guardrails import get_guardrails_manager
-from app.infra.langfuse_callback import langfuse_handler
+from app.infra.langfuse_callback import langfuse_handler, langfuse
 from app.infra.llm import get_llm_client
 from app.models.schemas import ChatRequest
 from app.services.conversation import create_conversation, insert_message
@@ -50,6 +50,7 @@ async def chat_stream(request: ChatRequest):
         },
     )
 
+    # Get guardrails manager (singleton, initialized at startup)
     guardrails = get_guardrails_manager()
 
     print(f"\n{'='*60}")
@@ -267,7 +268,7 @@ async def chat_stream(request: ChatRequest):
             # Ensure stream is closed
             yield "data: [DONE]\n\n"
             # Flush Langfuse events to ensure they're sent
-            langfuse_handler.flush()
+            # langfuse.flush()
 
     return StreamingResponse(
         event_generator(),

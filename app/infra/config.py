@@ -33,13 +33,13 @@ class Settings(BaseSettings):
     elasticsearch_node: str
     elasticsearch_username: Optional[str] = None
     elasticsearch_password: Optional[str] = None
-    elasticsearch_index_name: str = "knowledge_base"
+    elasticsearch_index_name: str = "demo"
 
     # NeMo Guardrails Configuration
     # Master switch to enable/disable ALL guardrails functionality
     # When True: PII detection, jailbreak detection, hallucination check, content safety - all enabled
     # When False: No guardrails processing occurs, all messages pass through unchanged
-    guardrails_enabled: bool = True
+    guardrails_enabled: bool = False
 
     class Config:
         env_file = ".env"

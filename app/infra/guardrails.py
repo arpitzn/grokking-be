@@ -279,7 +279,7 @@ class GuardrailsManager:
         try:
             # Run NeMo Guardrails output validation
             result = await self.rails.generate_async(
-                messages=[{"role": "assistant", "content": response}], context=context
+                messages=[{"role": "assistant", "content": response}]
             )
 
             if result and isinstance(result, dict):

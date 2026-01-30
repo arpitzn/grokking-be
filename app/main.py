@@ -32,6 +32,14 @@ logging.basicConfig(
 for handler in logging.root.handlers:
     handler.setFormatter(JSONFormatter())
 
+# Reduce NeMo Guardrails logging verbosity
+# Set to WARNING to suppress INFO/DEBUG messages (config dumps, runtime events, etc.)
+logging.getLogger("nemoguardrails").setLevel(logging.WARNING)
+logging.getLogger("nemoguardrails.rails").setLevel(logging.WARNING)
+logging.getLogger("nemoguardrails.colang").setLevel(logging.WARNING)
+logging.getLogger("nemoguardrails.actions").setLevel(logging.WARNING)
+logging.getLogger("nemoguardrails.library").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 
@@ -41,28 +49,35 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting Hackathon AI Agent Backend...")
     
-    # Initialize MongoDB connection
+    # Import all services
     from app.infra.mongo import get_mongodb_client
+    from app.infra.elasticsearch import get_elasticsearch_client
+    from app.agent.graph import get_graph
+    from app.infra.langfuse_callback import langfuse_handler
+    from app.infra.guardrails import get_guardrails_manager
+    from app.infra.mem0 import get_mem0_client
+    
+    # Initialize MongoDB connection
     await get_mongodb_client()
     logger.info("MongoDB client initialized")
     
     # Initialize Elasticsearch
-    from app.infra.elasticsearch import get_elasticsearch_client
     await get_elasticsearch_client()
     logger.info("Elasticsearch client initialized")
     
     # Initialize LangGraph
-    from app.agent.graph import get_graph
     get_graph()
     logger.info("LangGraph initialized")
     
     # Initialize Langfuse CallbackHandler
-    from app.infra.langfuse_callback import langfuse_handler
     logger.info("Langfuse CallbackHandler initialized")
+    
+    # Initialize Guardrails Manager
+    get_guardrails_manager()
+    logger.info("Guardrails Manager initialized")
     
     # Validate Mem0 connection
     try:
-        from app.infra.mem0 import get_mem0_client
         mem0_client = await get_mem0_client()
         logger.info("Mem0 client initialized")
     except Exception as e:
