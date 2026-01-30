@@ -1,0 +1,78 @@
+# Executor Node Evaluation Configuration
+# Tests response generation with different models, temperatures, and max_tokens
+
+description: "Executor Response Generation Evaluation"
+
+providers:
+  - id: "python:promptfoo/providers/executor_provider.py"
+    label: "GPT-4 (t=0.3)"
+    config:
+      model: gpt-4
+      temperature: 0.3
+      max_tokens: 2000
+
+  - id: "python:promptfoo/providers/executor_provider.py"
+    label: "GPT-4 (t=0.7)"
+    config:
+      model: gpt-4
+      temperature: 0.7
+      max_tokens: 2000
+
+  - id: "python:promptfoo/providers/executor_provider.py"
+    label: "GPT-4-Turbo (t=0.7)"
+    config:
+      model: gpt-4-turbo
+      temperature: 0.7
+      max_tokens: 2000
+
+prompts:
+  - "{{query}}"
+
+tests:
+  - description: "RAG - Answer from context"
+    vars:
+      query: "What are the key objectives for Q4?"
+      tool_results: '[{"source": "internal", "chunks": [{"content": "Q4 Objectives: 1. Increase revenue by 15%, 2. Launch new product line"}]}]'
+    assert:
+      - type: contains-any
+        value:
+          - "15%"
+          - "revenue"
+          - "product"
+
+  - description: "Simple greeting"
+    vars:
+      query: "Hello, how are you?"
+    assert:
+      - type: llm-rubric
+        value: "Response should be friendly and conversational"
+
+  - description: "Math question"
+    vars:
+      query: "What is 15% of 200?"
+    assert:
+      - type: contains
+        value: "30"
+
+  - description: "Code generation"
+    vars:
+      query: "Write a Python function to reverse a string"
+    assert:
+      - type: contains
+        value: "def"
+      - type: contains-any
+        value:
+          - "reverse"
+          - "return"
+
+  - description: "List generation"
+    vars:
+      query: "Give me 3 tips for productivity"
+    assert:
+      - type: llm-rubric
+        value: "Response should contain at least 3 distinct tips"
+
+evaluateOptions:
+  maxConcurrency: 2
+  showProgressBar: true
+  cache: true

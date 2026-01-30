@@ -1,0 +1,56 @@
+# End-to-End Evaluation Configuration
+# Tests complete chat flow via /chat/stream API
+# NOTE: Requires running backend server (uvicorn app.main:app --reload)
+
+description: "End-to-End Chat Flow Evaluation"
+
+providers:
+  - id: "python:promptfoo/providers/e2e_provider.py"
+    label: "E2E Chat"
+    config:
+      base_url: "http://localhost:8000"
+      timeout: 60
+
+prompts:
+  - "{{message}}"
+
+tests:
+  - description: "E2E - Simple greeting"
+    vars:
+      message: "Hello, how are you?"
+      user_id: "e2e_test_user"
+    assert:
+      - type: javascript
+        value: |
+          return output && output.length > 10 && !output.includes("Error");
+
+  - description: "E2E - Math question"
+    vars:
+      message: "What is 25 multiplied by 4?"
+      user_id: "e2e_test_user"
+    assert:
+      - type: contains
+        value: "100"
+
+  - description: "E2E - Knowledge question"
+    vars:
+      message: "What is the capital of Japan?"
+      user_id: "e2e_test_user"
+    assert:
+      - type: contains-any
+        value:
+          - "Tokyo"
+          - "capital"
+
+  - description: "E2E - Code request"
+    vars:
+      message: "Write a Python hello world program"
+      user_id: "e2e_test_user"
+    assert:
+      - type: contains
+        value: "print"
+
+evaluateOptions:
+  maxConcurrency: 2
+  showProgressBar: true
+  cache: false

@@ -1,0 +1,294 @@
+# Planner Node Test Cases
+# Tests query classification accuracy: INTERNAL vs EXTERNAL vs NONE
+
+description: "Planner Query Classification Tests"
+
+# Default test configuration
+defaultTest:
+  assert:
+    - type: is-json
+      description: "Response should be valid JSON"
+    - type: javascript
+      value: |
+        const result = JSON.parse(output);
+        return result.knowledge_source && ['internal', 'external', 'none'].includes(result.knowledge_source);
+      description: "knowledge_source should be one of: internal, external, none"
+
+tests:
+  # =============================================================================
+  # INTERNAL RAG QUERIES (should classify as "internal")
+  # =============================================================================
+
+  - description: "Internal - Director meeting reference"
+    vars:
+      query: "What did our director say in yesterday's meeting?"
+      working_memory: []
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'internal';
+        description: "Should classify as internal"
+      - type: llm-rubric
+        value: "The reasoning should mention company/internal context"
+
+  - description: "Internal - Q4 report query"
+    vars:
+      query: "What are the key findings in our Q4 report?"
+      working_memory: []
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'internal';
+
+  - description: "Internal - Company policy question"
+    vars:
+      query: "What is our company's policy on remote work?"
+      working_memory: []
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'internal';
+
+  - description: "Internal - Uploaded document reference"
+    vars:
+      query: "Summarize the document I uploaded yesterday"
+      working_memory: []
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'internal';
+
+  - description: "Internal - Project status"
+    vars:
+      query: "What's the status of Project Alpha according to our documents?"
+      working_memory: []
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'internal';
+
+  - description: "Internal - Team meeting notes"
+    vars:
+      query: "What action items were discussed in our team's standup notes?"
+      working_memory: []
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'internal';
+
+  - description: "Internal - Internal person reference"
+    vars:
+      query: "What did Sarah from marketing present last week?"
+      working_memory: []
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'internal';
+
+  # =============================================================================
+  # EXTERNAL SEARCH QUERIES (should classify as "external")
+  # =============================================================================
+
+  - description: "External - Historical fact"
+    vars:
+      query: "Who was the President of India in 2020?"
+      working_memory: []
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'external';
+        description: "Should classify as external"
+
+  - description: "External - Geography question"
+    vars:
+      query: "What is the capital of France?"
+      working_memory: []
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'external';
+
+  - description: "External - Current events"
+    vars:
+      query: "What are the latest news headlines today?"
+      working_memory: []
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'external';
+
+  - description: "External - Famous person"
+    vars:
+      query: "Who is Elon Musk and what companies does he own?"
+      working_memory: []
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'external';
+
+  - description: "External - Scientific fact"
+    vars:
+      query: "What is the speed of light in a vacuum?"
+      working_memory: []
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'external';
+
+  - description: "External - Stock market"
+    vars:
+      query: "What is the current stock price of Apple?"
+      working_memory: []
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'external';
+
+  - description: "External - Weather query"
+    vars:
+      query: "What's the weather forecast for New York this week?"
+      working_memory: []
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'external';
+
+  # =============================================================================
+  # CONVERSATIONAL QUERIES (should classify as "none")
+  # =============================================================================
+
+  - description: "Conversational - Simple greeting"
+    vars:
+      query: "Hello!"
+      working_memory: []
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'none';
+        description: "Should classify as none"
+
+  - description: "Conversational - Thanks"
+    vars:
+      query: "Thanks, that was helpful!"
+      working_memory:
+        - role: "user"
+          content: "What is 2+2?"
+        - role: "assistant"
+          content: "2+2 equals 4."
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'none';
+
+  - description: "Conversational - Clarification request"
+    vars:
+      query: "Can you explain that in simpler terms?"
+      working_memory:
+        - role: "assistant"
+          content: "The algorithm uses a recursive approach with memoization."
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'none';
+
+  - description: "Conversational - Goodbye"
+    vars:
+      query: "Goodbye, have a nice day!"
+      working_memory: []
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'none';
+
+  - description: "Conversational - Follow-up on previous answer"
+    vars:
+      query: "Tell me more about that"
+      working_memory:
+        - role: "user"
+          content: "What is machine learning?"
+        - role: "assistant"
+          content: "Machine learning is a subset of AI that enables systems to learn from data."
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'none';
+
+  # =============================================================================
+  # EDGE CASES AND AMBIGUOUS QUERIES
+  # =============================================================================
+
+  - description: "Ambiguous - Could be internal or external"
+    vars:
+      query: "What are the latest updates?"
+      working_memory: []
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return ['internal', 'external'].includes(result.knowledge_source);
+        description: "Should classify as either internal or external"
+
+  - description: "Edge case - Empty query"
+    vars:
+      query: ""
+      working_memory: []
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'none';
+
+  - description: "Edge case - Very long query"
+    vars:
+      query: "I need to understand the comprehensive details about our company's strategic initiatives for the next fiscal year, including all the budget allocations, resource planning, and timeline projections that were discussed in our last quarterly review meeting"
+      working_memory: []
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'internal';
+
+  - description: "Mixed context - Internal reference with external knowledge"
+    vars:
+      query: "How does our product compare to Apple's latest offering?"
+      working_memory: []
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return ['internal', 'external'].includes(result.knowledge_source);
+        description: "Should classify reasonably for mixed context"
+
+  - description: "Context-dependent - With relevant history"
+    vars:
+      query: "What about the budget?"
+      working_memory:
+        - role: "user"
+          content: "Tell me about Project Alpha"
+        - role: "assistant"
+          content: "Project Alpha is our internal initiative for Q1."
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'internal';
+        description: "Should use context to determine internal classification"

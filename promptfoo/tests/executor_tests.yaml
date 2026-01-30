@@ -1,0 +1,344 @@
+# Executor Node Test Cases
+# Tests response generation quality, context faithfulness, and relevance
+
+description: "Executor Response Generation Tests"
+
+# Default test configuration
+defaultTest:
+  assert:
+    - type: not-contains
+      value: "I don't have access"
+      description: "Should not refuse when context is provided"
+
+tests:
+  # =============================================================================
+  # WITH RAG CONTEXT - Should use retrieved information
+  # =============================================================================
+
+  - description: "RAG - Answer from internal document"
+    vars:
+      query: "What are the key objectives for Q4?"
+      working_memory: []
+      tool_results:
+        - source: "internal"
+          chunks:
+            - content: "Q4 Objectives: 1. Increase revenue by 15%, 2. Launch new product line, 3. Expand to 3 new markets"
+              metadata:
+                filename: "q4_plan.pdf"
+    assert:
+      - type: contains
+        value: "15%"
+        description: "Should include specific data from context"
+      - type: llm-rubric
+        value: "The response should accurately reflect the Q4 objectives mentioned in the context"
+      - type: context-faithfulness
+        threshold: 0.7
+
+  - description: "RAG - Synthesize from multiple chunks"
+    vars:
+      query: "Summarize our hiring plans"
+      working_memory: []
+      tool_results:
+        - source: "internal"
+          chunks:
+            - content: "Engineering team plans to hire 5 senior developers in Q1."
+            - content: "Marketing needs 2 new content writers by March."
+            - content: "Sales department expanding with 3 regional managers."
+    assert:
+      - type: contains-any
+        value:
+          - "5"
+          - "developers"
+          - "engineers"
+      - type: contains-any
+        value:
+          - "2"
+          - "writers"
+          - "content"
+      - type: llm-rubric
+        value: "Response should synthesize hiring information from all departments"
+
+  - description: "RAG - Meeting notes context"
+    vars:
+      query: "What decisions were made in the leadership meeting?"
+      working_memory: []
+      tool_results:
+        - source: "internal"
+          chunks:
+            - content: "Leadership Meeting Dec 15: Approved budget increase of $2M for R&D. Decided to delay product launch to March. CEO emphasized customer satisfaction priority."
+    assert:
+      - type: contains-any
+        value:
+          - "budget"
+          - "$2M"
+          - "R&D"
+      - type: answer-relevance
+        threshold: 0.8
+
+  - description: "RAG - External search results"
+    vars:
+      query: "Who is the current CEO of Microsoft?"
+      working_memory: []
+      tool_results:
+        - source: "external"
+          results:
+            - content: "Satya Nadella is the CEO of Microsoft since 2014. He has led the company's transformation to cloud computing."
+    assert:
+      - type: contains
+        value: "Satya Nadella"
+      - type: context-faithfulness
+        threshold: 0.8
+
+  - description: "RAG - Technical documentation"
+    vars:
+      query: "How do I configure the authentication module?"
+      working_memory: []
+      tool_results:
+        - source: "internal"
+          chunks:
+            - content: "Authentication Configuration: Set AUTH_PROVIDER=oauth2 in .env file. Configure CLIENT_ID and CLIENT_SECRET. Enable MFA by setting MFA_ENABLED=true."
+    assert:
+      - type: contains-any
+        value:
+          - "AUTH_PROVIDER"
+          - "oauth2"
+          - ".env"
+      - type: llm-rubric
+        value: "Response should provide clear configuration steps based on the documentation"
+
+  # =============================================================================
+  # WITHOUT CONTEXT - Conversational responses
+  # =============================================================================
+
+  - description: "No context - Simple greeting"
+    vars:
+      query: "Hello, how are you?"
+      working_memory: []
+      tool_results: []
+    assert:
+      - type: llm-rubric
+        value: "Response should be friendly and conversational"
+      - type: not-contains
+        value: "error"
+
+  - description: "No context - Clarification request"
+    vars:
+      query: "Can you explain that in more detail?"
+      working_memory:
+        - role: "assistant"
+          content: "Machine learning uses algorithms to learn patterns from data."
+      tool_results: []
+    assert:
+      - type: llm-rubric
+        value: "Response should expand on the previous explanation about machine learning"
+      - type: contains-any
+        value:
+          - "algorithm"
+          - "data"
+          - "pattern"
+          - "learn"
+
+  - description: "No context - Follow-up question"
+    vars:
+      query: "What about the second point?"
+      working_memory:
+        - role: "user"
+          content: "Give me three tips for productivity"
+        - role: "assistant"
+          content: "1. Set clear goals. 2. Use time blocking. 3. Take regular breaks."
+      tool_results: []
+    assert:
+      - type: contains-any
+        value:
+          - "time"
+          - "block"
+          - "schedule"
+      - type: llm-rubric
+        value: "Should elaborate on time blocking specifically"
+
+  - description: "No context - Math question"
+    vars:
+      query: "What is 15% of 200?"
+      working_memory: []
+      tool_results: []
+    assert:
+      - type: contains
+        value: "30"
+
+  # =============================================================================
+  # CONFLICTING CONTEXT - Should handle gracefully
+  # =============================================================================
+
+  - description: "Conflicting context - Multiple sources disagree"
+    vars:
+      query: "When is the product launch?"
+      working_memory: []
+      tool_results:
+        - source: "internal"
+          chunks:
+            - content: "Product launch scheduled for March 15, 2024."
+            - content: "Updated timeline: Launch moved to April 1, 2024 due to testing delays."
+    assert:
+      - type: contains-any
+        value:
+          - "April"
+          - "updated"
+          - "moved"
+      - type: llm-rubric
+        value: "Should acknowledge the updated timeline or note the change"
+
+  - description: "Conflicting context - Partial information"
+    vars:
+      query: "What is the project budget?"
+      working_memory: []
+      tool_results:
+        - source: "internal"
+          chunks:
+            - content: "Initial budget allocation: $500,000"
+            - content: "Budget revision pending approval. Proposed increase to $750,000."
+    assert:
+      - type: llm-rubric
+        value: "Should mention both the current and proposed budget figures"
+
+  # =============================================================================
+  # QUALITY AND STYLE TESTS
+  # =============================================================================
+
+  - description: "Quality - Response length appropriate"
+    vars:
+      query: "Explain quantum computing in simple terms"
+      working_memory: []
+      tool_results: []
+    assert:
+      - type: javascript
+        value: |
+          return output.length > 100 && output.length < 2000;
+        description: "Response should be between 100-2000 characters"
+      - type: llm-rubric
+        value: "Explanation should be accessible to non-technical readers"
+
+  - description: "Quality - Professional tone"
+    vars:
+      query: "Draft an email to the client about project delay"
+      working_memory: []
+      tool_results: []
+    assert:
+      - type: not-contains
+        value: "sorry"
+        weight: 0.3
+      - type: llm-rubric
+        value: "Email should maintain professional tone while acknowledging the delay"
+
+  - description: "Quality - Structured response"
+    vars:
+      query: "List 5 benefits of cloud computing"
+      working_memory: []
+      tool_results: []
+    assert:
+      - type: javascript
+        value: |
+          const lines = output.split('\n').filter(l => l.trim());
+          return lines.length >= 5;
+        description: "Should have at least 5 distinct points"
+
+  - description: "Quality - Code formatting"
+    vars:
+      query: "Show me a Python function to calculate factorial"
+      working_memory: []
+      tool_results: []
+    assert:
+      - type: contains
+        value: "def"
+      - type: contains-any
+        value:
+          - "factorial"
+          - "return"
+
+  # =============================================================================
+  # EDGE CASES
+  # =============================================================================
+
+  - description: "Edge case - Very long context"
+    vars:
+      query: "What are the main points?"
+      working_memory: []
+      tool_results:
+        - source: "internal"
+          chunks:
+            - content: "This is a very long document with many sections. Section 1 covers introduction. Section 2 discusses methodology. Section 3 presents results showing 25% improvement. Section 4 concludes with recommendations for future work including expanding the sample size and testing in different environments."
+    assert:
+      - type: llm-rubric
+        value: "Should summarize key points from the long context"
+
+  - description: "Edge case - Empty query context"
+    vars:
+      query: "?"
+      working_memory: []
+      tool_results: []
+    assert:
+      - type: llm-rubric
+        value: "Should ask for clarification or provide helpful prompt"
+
+  - description: "Edge case - Non-English query"
+    vars:
+      query: "Bonjour, comment ça va?"
+      working_memory: []
+      tool_results: []
+    assert:
+      - type: llm-rubric
+        value: "Should respond appropriately, potentially in French"
+
+  - description: "Edge case - Technical jargon in context"
+    vars:
+      query: "Explain this to a beginner"
+      working_memory: []
+      tool_results:
+        - source: "internal"
+          chunks:
+            - content: "The API implements RESTful principles with OAuth2 authentication. Endpoints support JSON and XML serialization with rate limiting of 1000 req/min."
+    assert:
+      - type: not-contains-any
+        value:
+          - "RESTful"
+          - "OAuth2"
+          - "serialization"
+      - type: llm-rubric
+        value: "Should simplify technical concepts for a beginner audience"
+
+  - description: "Edge case - Contradictory user request"
+    vars:
+      query: "Write a short essay of at least 1000 words"
+      working_memory: []
+      tool_results: []
+    assert:
+      - type: llm-rubric
+        value: "Should address the contradiction or ask for clarification"
+
+  # =============================================================================
+  # TEMPERATURE SENSITIVITY TESTS
+  # =============================================================================
+
+  - description: "Temperature - Factual accuracy (low temp preferred)"
+    vars:
+      query: "What is the boiling point of water at sea level?"
+      working_memory: []
+      tool_results: []
+    assert:
+      - type: contains-any
+        value:
+          - "100"
+          - "212"
+          - "boiling"
+
+  - description: "Temperature - Creative writing (high temp acceptable)"
+    vars:
+      query: "Write a creative opening line for a mystery novel"
+      working_memory: []
+      tool_results: []
+    assert:
+      - type: javascript
+        value: |
+          return output.length > 20;
+        description: "Should produce creative content"
+      - type: llm-rubric
+        value: "Opening line should be intriguing and set up mystery atmosphere"
