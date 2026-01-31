@@ -1,86 +1,138 @@
 """
 Agent Responsibility:
-- Normalizes incoming case input
-- Extracts entities (order_id, customer_id, zone_id)
+- Normalizes incoming case input using LLM-based entity extraction
+- Extracts entities (order_id, customer_id, zone_id) with confidence scoring
 - Populates case slice in state
 - Does NOT classify intent or retrieve data
 """
 
-import re
-from typing import Dict, Any
+from typing import Dict, Any, Optional, List
+from pydantic import BaseModel, Field
 
 from app.agent.state import AgentState, emit_phase_event
+from app.infra.llm import get_llm_service, get_cheap_model
+
+
+class IngestionOutput(BaseModel):
+    """Structured output for LLM-based entity extraction"""
+    order_id: Optional[str] = Field(
+        None, 
+        description="Extracted order ID (e.g., 'order_12345', '12345', 'ORDER-123')"
+    )
+    customer_id: str = Field(
+        ..., 
+        description="Customer identifier (defaults to user_id if not found)"
+    )
+    zone_id: Optional[str] = Field(
+        None, 
+        description="Delivery zone ID if mentioned"
+    )
+    restaurant_id: Optional[str] = Field(
+        None, 
+        description="Restaurant ID if mentioned"
+    )
+    normalized_query: str = Field(
+        ..., 
+        description="Cleaned, normalized version of the user query"
+    )
+    entities_found: List[str] = Field(
+        default_factory=list,
+        description="List of entity types successfully extracted (e.g., ['order_id', 'zone_id'])"
+    )
+    confidence: float = Field(
+        ..., 
+        ge=0.0, 
+        le=1.0,
+        description="Confidence in entity extraction (0.0 to 1.0)"
+    )
 
 
 async def ingestion_node(state: AgentState) -> AgentState:
     """
-    Ingestion node: Normalizes input and extracts entities.
+    Ingestion node: Normalizes input and extracts entities using LLM.
     
     Input: Raw user message, user_id, conversation_id
-    Output: Populated case slice with extracted entities
+    Output: Populated case slice with extracted entities + confidence
     """
-    # Get raw input from state (will be populated by API endpoint)
+    # Get raw input from state
     raw_text = state.get("case", {}).get("raw_text", "")
     user_id = state.get("case", {}).get("user_id", "")
     conversation_id = state.get("case", {}).get("conversation_id", "")
+    persona = state.get("case", {}).get("persona", "customer")
+    channel = state.get("case", {}).get("channel", "web")
     
-    # Extract entities using regex patterns (simple extraction for hackathon)
-    order_id = None
-    customer_id = user_id  # Default to user_id
-    zone_id = None
-    restaurant_id = None
+    # Build prompt for LLM-based entity extraction
+    prompt = f"""Extract entities from this food delivery support query.
+
+Query: "{raw_text}"
+
+Extract the following entities if present:
+- order_id: Any order number, ID, or reference (e.g., "order 12345", "ORDER-123", "#456")
+- zone_id: Delivery zone identifier if mentioned
+- restaurant_id: Restaurant ID or name if mentioned
+- normalized_query: A cleaned version of the query (fix typos, expand abbreviations)
+- entities_found: List which entity types you successfully extracted
+- confidence: Your confidence in the extraction (0.0 to 1.0)
+
+If an entity is not mentioned in the query, set it to null.
+Customer ID will default to the user_id: {user_id}
+
+Examples:
+- "My order 12345 is late" → order_id: "12345", confidence: 0.95
+- "ORDER-ABC-789 from zone 5" → order_id: "ABC-789", zone_id: "5", confidence: 0.9
+- "Where is my food?" → order_id: null, confidence: 0.8 (no order mentioned)
+"""
     
-    # Extract order ID (pattern: order_123, ORDER-123, order #123)
-    order_patterns = [
-        r'order[_\s#-]?(\w+)',
-        r'ORDER[_\s#-]?(\w+)',
-        r'order\s+#?(\d+)',
+    messages = [
+        {
+            "role": "system", 
+            "content": "You are an entity extraction system for food delivery support. Extract entities accurately and provide confidence scores."
+        },
+        {"role": "user", "content": prompt}
     ]
-    for pattern in order_patterns:
-        match = re.search(pattern, raw_text, re.IGNORECASE)
-        if match:
-            order_id = match.group(1) if match.lastindex else match.group(0)
-            break
     
-    # Extract zone ID (pattern: zone_123, zone-123)
-    zone_patterns = [
-        r'zone[_\s-]?(\w+)',
-        r'ZONE[_\s-]?(\w+)',
-    ]
-    for pattern in zone_patterns:
-        match = re.search(pattern, raw_text, re.IGNORECASE)
-        if match:
-            zone_id = match.group(1) if match.lastindex else match.group(0)
-            break
+    # Use structured output with cheap model
+    llm_service = get_llm_service()
+    llm = llm_service.get_structured_output_llm_instance(
+        model_name=get_cheap_model(),
+        schema=IngestionOutput,
+        temperature=0.1  # Low temperature for deterministic extraction
+    )
     
-    # Extract restaurant ID (pattern: restaurant_123, rest_123)
-    restaurant_patterns = [
-        r'restaurant[_\s-]?(\w+)',
-        r'rest[_\s-]?(\w+)',
-    ]
-    for pattern in restaurant_patterns:
-        match = re.search(pattern, raw_text, re.IGNORECASE)
-        if match:
-            restaurant_id = match.group(1) if match.lastindex else match.group(0)
-            break
+    lc_messages = llm_service.convert_messages(messages)
+    response: IngestionOutput = await llm.ainvoke(lc_messages)
     
-    # Populate case slice
+    # Populate case slice with extracted entities
     state["case"] = {
-        "persona": "customer",  # Default persona
-        "channel": "web",  # Default channel
-        "order_id": order_id,
-        "customer_id": customer_id,
-        "zone_id": zone_id,
-        "restaurant_id": restaurant_id,
+        "persona": persona,
+        "channel": channel,
+        "order_id": response.order_id,
+        "customer_id": response.customer_id or user_id,
+        "zone_id": response.zone_id,
+        "restaurant_id": response.restaurant_id,
         "raw_text": raw_text,
-        "locale": "en-US",  # Default locale
+        "normalized_text": response.normalized_query,  # Add normalized version
+        "locale": "en-US",
         "conversation_id": conversation_id,
         "user_id": user_id
     }
     
-    # Emit phase event
-    persona = state.get("case", {}).get("persona", "customer")
-    channel = state.get("case", {}).get("channel", "web")
-    emit_phase_event(state, "ingestion", f"Processing {persona} inquiry via {channel}")
+    # Initialize confidence tracking
+    if "confidence_scores" not in state:
+        state["confidence_scores"] = {}
+    state["confidence_scores"]["ingestion"] = response.confidence
+    
+    # Emit phase event with entity details
+    entities_str = ", ".join(response.entities_found) if response.entities_found else "none"
+    emit_phase_event(
+        state, 
+        "ingestion", 
+        f"Extracted entities: {entities_str} (confidence: {response.confidence:.2f})",
+        metadata={
+            "entities": response.entities_found,
+            "confidence": response.confidence,
+            "order_id": response.order_id
+        }
+    )
     
     return state

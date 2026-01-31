@@ -122,8 +122,18 @@ async def guardrails_node(state: AgentState) -> AgentState:
     critical_failures = evaluate_tool_failures(state)
     
     # 4. CONFIDENCE GATING (single authority)
+    # Use overall confidence from confidence_scores if available, otherwise fall back to analysis confidence
+    confidence_scores = state.get("confidence_scores", {})
+    overall_confidence = confidence_scores.get("overall", state.get("analysis", {}).get("confidence", 0.0))
     analysis_confidence = state.get("analysis", {}).get("confidence", 0.0)
-    confidence_gate_passed = analysis_confidence >= CONFIDENCE_THRESHOLD_AUTO
+    
+    # Use the lower threshold (0.7) for routing decisions as per plan
+    CONFIDENCE_THRESHOLD_ROUTING = 0.7
+    confidence_gate_passed = overall_confidence >= CONFIDENCE_THRESHOLD_ROUTING
+    
+    # Check if reasoning agent needs more data
+    analysis = state.get("analysis", {})
+    needs_more_data = analysis.get("needs_more_data", False)
     
     # 5. ROUTING DECISION (single authority, may override Planner's advisory)
     initial_route = state.get("plan", {}).get("initial_route", "auto")  # Planner's advisory
@@ -131,14 +141,22 @@ async def guardrails_node(state: AgentState) -> AgentState:
     # Guardrails has FINAL authority and may override
     if not compliance_result["passed"]:
         routing_decision = "human"  # Compliance failure (override)
+        routing_reason = "Compliance check failed"
     elif not safety_result["passed"]:
         routing_decision = "human"  # Safety failure (override)
+        routing_reason = "Safety check failed"
     elif critical_failures:
         routing_decision = "human"  # Critical tool failure (override)
+        routing_reason = f"Critical tool failures: {', '.join(critical_failures)}"
+    elif needs_more_data:
+        routing_decision = "human"  # Needs more data (override)
+        routing_reason = "Reasoning agent indicates more data needed"
     elif not confidence_gate_passed:
         routing_decision = "human"  # Low confidence (override)
+        routing_reason = f"Low confidence: {overall_confidence:.2f} < {CONFIDENCE_THRESHOLD_ROUTING}"
     else:
         routing_decision = initial_route  # Accept Planner's advisory if all checks passed
+        routing_reason = f"All checks passed (confidence: {overall_confidence:.2f})"
     
     # Populate state["guardrails"]
     state["guardrails"] = {
@@ -147,14 +165,22 @@ async def guardrails_node(state: AgentState) -> AgentState:
         "critical_failures": critical_failures,
         "confidence_gate_passed": confidence_gate_passed,
         "routing_decision": routing_decision,  # FINAL routing decision
+        "routing_reason": routing_reason,  # Reason for routing decision
+        "overall_confidence": overall_confidence,  # Overall confidence score used
+        "needs_more_data": needs_more_data,  # Flag from reasoning agent
     }
     
     # Emit phase event
     emit_phase_event(
         state,
         "guardrails",
-        f"Routing decision: {routing_decision}",
-        metadata={"compliance": compliance_result}
+        f"Routing decision: {routing_decision} ({routing_reason})",
+        metadata={
+            "compliance": compliance_result,
+            "confidence": overall_confidence,
+            "needs_more_data": needs_more_data,
+            "confidence_threshold": CONFIDENCE_THRESHOLD_ROUTING
+        }
     )
     
     return state

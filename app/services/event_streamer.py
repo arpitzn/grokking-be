@@ -148,16 +148,65 @@ class EventStreamer:
         
         # Custom summaries with metrics
         summaries = {
-            "ingestion": f"Processing customer inquiry: {content[:50]}..." if len(content) > 50 else content,
-            "intent_classification": f"Classified issue: {content}",
+            "ingestion": self._format_ingestion_summary(metadata, content),
+            "intent_classification": self._format_intent_summary(metadata, content),
             "planning": f"Planning: {content}",
             "searching": self._format_search_summary(metadata),
             "reasoning": self._format_reasoning_summary(metadata),
             "generating": "Composing response...",
-            "guardrails": f"Compliance check: {content}"
+            "guardrails": self._format_guardrails_summary(metadata, content)
         }
         
         return summaries.get(phase, content)
+    
+    def _format_ingestion_summary(self, metadata: Dict, content: str) -> str:
+        """Format ingestion phase summary with entity extraction details"""
+        entities = metadata.get("entities", [])
+        confidence = metadata.get("confidence", 0.0)
+        order_id = metadata.get("order_id")
+        
+        parts = []
+        if entities:
+            parts.append(f"entities: {', '.join(entities)}")
+        if confidence > 0:
+            parts.append(f"confidence: {confidence:.2f}")
+        if order_id:
+            parts.append(f"order: {order_id}")
+        
+        if parts:
+            return f"Extracted {', '.join(parts)}"
+        else:
+            return content[:50] + "..." if len(content) > 50 else content
+    
+    def _format_intent_summary(self, metadata: Dict, content: str) -> str:
+        """Format intent classification summary with confidence"""
+        confidence = metadata.get("confidence", 0.0)
+        sla_risk = metadata.get("SLA_risk", False)
+        safety_flags = metadata.get("safety_flags", [])
+        
+        parts = [content]
+        if confidence > 0:
+            parts.append(f"confidence: {confidence:.2f}")
+        if sla_risk:
+            parts.append("SLA risk")
+        if safety_flags:
+            parts.append(f"safety: {len(safety_flags)} flags")
+        
+        return " | ".join(parts)
+    
+    def _format_guardrails_summary(self, metadata: Dict, content: str) -> str:
+        """Format guardrails summary with routing decision and confidence"""
+        confidence = metadata.get("confidence", 0.0)
+        needs_more_data = metadata.get("needs_more_data", False)
+        threshold = metadata.get("confidence_threshold", 0.7)
+        
+        parts = [content]
+        if confidence > 0:
+            parts.append(f"confidence: {confidence:.2f} (threshold: {threshold})")
+        if needs_more_data:
+            parts.append("needs more data")
+        
+        return " | ".join(parts)
     
     def _format_search_summary(self, metadata: Dict) -> str:
         """Format search phase summary with evidence counts"""
@@ -171,11 +220,32 @@ class EventStreamer:
             return "Gathering evidence from multiple sources"
     
     def _format_reasoning_summary(self, metadata: Dict) -> str:
-        """Format reasoning phase summary with hypothesis count"""
+        """Format reasoning phase summary with hypothesis count, confidence, and self-reflection"""
         hypothesis_count = metadata.get("hypothesis_count", 0)
         confidence = metadata.get("confidence", 0.0)
+        evidence_quality = metadata.get("evidence_quality", "unknown")
+        needs_more_data = metadata.get("needs_more_data", False)
+        conflicts = metadata.get("conflicts", 0)
+        overall_confidence = metadata.get("overall_confidence", confidence)
+        
+        parts = []
         if hypothesis_count > 0:
-            return f"Generated {hypothesis_count} hypotheses (confidence: {confidence:.2f})"
+            parts.append(f"{hypothesis_count} hypotheses")
+        
+        parts.append(f"confidence: {overall_confidence:.2f}")
+        
+        if evidence_quality != "unknown":
+            quality_emoji = {"high": "✓", "medium": "~", "low": "⚠"}.get(evidence_quality, "")
+            parts.append(f"evidence: {quality_emoji} {evidence_quality}")
+        
+        if needs_more_data:
+            parts.append("needs more data")
+        
+        if conflicts > 0:
+            parts.append(f"{conflicts} conflicts")
+        
+        if parts:
+            return f"Generated {', '.join(parts)}"
         else:
             return "Analyzing evidence and generating response strategy"
     

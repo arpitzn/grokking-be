@@ -71,8 +71,11 @@ class AgentState(TypedDict):
     evidence: Annotated[Dict[str, List[Dict]], merge_dicts]  # mongo[], policy[], memory[]
     
     # Decision slice - may be updated concurrently if reasoning runs multiple times
-    analysis: Annotated[Dict[str, Any], take_right]  # hypotheses[], action_candidates[], confidence, gaps
+    analysis: Annotated[Dict[str, Any], take_right]  # hypotheses[], action_candidates[], confidence, gaps, self-reflection fields
     guardrails: Annotated[Dict[str, Any], take_right]  # compliance_result, routing_decision (auto/human - FINAL), confidence_gate_result
+    
+    # Confidence tracking - PARALLEL UPDATES from all agents
+    confidence_scores: Annotated[Dict[str, float], merge_dicts]  # Per-agent confidence scores (ingestion, intent_classification, reasoning, overall)
     
     # Outputs - may be updated by response_synthesis or human_escalation
     final_response: Annotated[str, take_right]
@@ -177,5 +180,6 @@ def create_initial_state(request: "CaseRequest", conversation_id: str) -> AgentS
         "turn_number": 1,
         "events": [],
         "phase_status": {},
+        "confidence_scores": {},  # Initialize confidence tracking
         "messages": [],  # Internal subgraph state for LLM iterations
     }
