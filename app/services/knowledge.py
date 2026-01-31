@@ -1,6 +1,6 @@
 """Knowledge service for RAG ingestion and retrieval"""
 from app.infra.elasticsearch import ElasticsearchDep, ElasticsearchClient
-from app.infra.llm import get_llm_client
+from app.infra.llm import get_llm_service
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from typing import List, Dict, Any
 from datetime import datetime
@@ -27,7 +27,7 @@ async def ingest_document(
     4. Store in Elasticsearch with user_id metadata using batch operations
     """
     start_time = time.time()
-    llm_client = get_llm_client()
+    llm_service = get_llm_service()
     
     # Chunk the document
     chunk_start = time.time()
@@ -53,7 +53,7 @@ async def ingest_document(
     documents = []
     for idx, chunk in enumerate(chunks):
         # Create embedding
-        embedding = await llm_client.embeddings(chunk, model="text-embedding-3-small")
+        embedding = await llm_service.embeddings(chunk, model="text-embedding-3-small")
         
         documents.append({
             "user_id": user_id,
@@ -119,10 +119,10 @@ async def retrieve_chunks(
         from app.infra.elasticsearch import get_elasticsearch_client
         es_client = await get_elasticsearch_client()
     
-    llm_client = get_llm_client()
+    llm_service = get_llm_service()
     
     # Embed query
-    query_embedding = await llm_client.embeddings(query, model="text-embedding-3-small")
+    query_embedding = await llm_service.embeddings(query, model="text-embedding-3-small")
     
     # Search Elasticsearch
     results = await es_client.search(

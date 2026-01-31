@@ -15,7 +15,7 @@ import json
 from typing import Dict, Any
 
 from app.agent.state import AgentState
-from app.infra.llm import get_llm_client, get_cheap_model
+from app.infra.llm import get_llm_service, get_cheap_model
 
 
 async def intent_classification_node(state: AgentState) -> AgentState:
@@ -56,12 +56,13 @@ Respond ONLY with valid JSON:
     ]
     
     # Use cheap model for classification
-    llm_client = get_llm_client()
-    response = await llm_client.chat_completion(
-        model=get_cheap_model(),
-        messages=messages,
+    llm_service = get_llm_service()
+    llm = llm_service.get_llm_instance(
+        model_name=get_cheap_model(),
         temperature=0.3  # Lower temperature for more deterministic classification
     )
+    lc_messages = llm_service.convert_messages(messages)
+    response = await llm.ainvoke(lc_messages)
     
     # Parse JSON response
     try:

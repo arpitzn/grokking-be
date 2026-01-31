@@ -7,7 +7,7 @@ from typing import Any, Dict
 from app.agent.state import AgentState
 from app.agent.tools import external_search_tool, internal_rag_tool
 from app.infra.guardrails import get_guardrails_manager
-from app.infra.llm import get_cheap_model, get_expensive_model, get_llm_client
+from app.infra.llm import get_cheap_model, get_expensive_model, get_llm_service
 from app.services.conversation import insert_message
 from app.services.memory import build_working_memory, should_summarize
 from app.services.semantic_memory import async_write_to_mem0
@@ -53,7 +53,7 @@ async def memory_node(state: AgentState) -> AgentState:
 
 async def planner_node(state: AgentState) -> AgentState:
     """Plan execution - classify knowledge source and create execution plan"""
-    llm_client = get_llm_client()
+    llm_service = get_llm_service()
 
     try:
         # Build prompt for planner
@@ -96,11 +96,15 @@ Return JSON only:
 
         messages = [{"role": "user", "content": planner_prompt}]
         # LLM call automatically traced via CallbackHandler
-        response = await llm_client.chat_completion(
-            model=get_cheap_model(), messages=messages, temperature=0.3, max_tokens=500
+        llm = llm_service.get_llm_instance(
+            model_name=get_cheap_model(),
+            temperature=0.3,
+            max_completion_tokens=500
         )
+        lc_messages = llm_service.convert_messages(messages)
+        response = await llm.ainvoke(lc_messages)
 
-        plan_text = response.choices[0].message.content.strip()
+        plan_text = response.content.strip()
 
         # Parse JSON from response
         try:
@@ -265,7 +269,7 @@ async def executor_node(state: AgentState) -> AgentState:
 
     IMPORTANT: Guardrail detections return friendly messages, not errors.
     """
-    llm_client = get_llm_client()
+    llm_service = get_llm_service()
     guardrails = get_guardrails_manager()
 
     try:
@@ -312,15 +316,15 @@ Provide a clear, helpful response based on the available information. If you use
         messages = [{"role": "user", "content": executor_prompt}]
 
         # Generate response - LLM call automatically traced via CallbackHandler
-        response = await llm_client.chat_completion(
-            model=get_expensive_model(),
-            messages=messages,
+        llm = llm_service.get_llm_instance(
+            model_name=get_expensive_model(),
             temperature=0.7,
-            max_tokens=2000,
-            stream=False,
+            max_completion_tokens=2000
         )
+        lc_messages = llm_service.convert_messages(messages)
+        response = await llm.ainvoke(lc_messages)
 
-        response_text = response.choices[0].message.content.strip()
+        response_text = response.content.strip()
 
         # Validate output with content safety guardrails
         output_validation = await guardrails.validate_output(

@@ -9,7 +9,7 @@ Agent Responsibility:
 from typing import Dict, Any
 
 from app.agent.state import AgentState
-from app.infra.llm import get_llm_client, get_expensive_model
+from app.infra.llm import get_llm_service, get_expensive_model
 
 
 async def response_synthesis_node(state: AgentState) -> AgentState:
@@ -56,12 +56,13 @@ Be empathetic, clear, and professional. Keep it concise (2-3 paragraphs).
     ]
     
     # Use expensive model for response synthesis
-    llm_client = get_llm_client()
-    response = await llm_client.chat_completion(
-        model=get_expensive_model(),
-        messages=messages,
+    llm_service = get_llm_service()
+    llm = llm_service.get_llm_instance(
+        model_name=get_expensive_model(),
         temperature=0.7
     )
+    lc_messages = llm_service.convert_messages(messages)
+    response = await llm.ainvoke(lc_messages)
     
     # Extract response content
     final_response = response.content if hasattr(response, 'content') else str(response)

@@ -1,6 +1,6 @@
 """Summarization service for conversation summaries"""
 from app.infra.mongo import get_mongodb_client
-from app.infra.llm import get_llm_client, get_cheap_model
+from app.infra.llm import get_llm_service, get_cheap_model
 from app.services.conversation import get_messages
 from typing import Optional
 from datetime import datetime
@@ -19,7 +19,7 @@ async def summarize_conversation(conversation_id: str) -> str:
     3. Store summary in summaries collection
     """
     db = await get_mongodb_client()
-    llm_client = get_llm_client()
+    llm_service = get_llm_service()
     
     # Get latest summary to find messages since then
     summary_doc = await db.summaries.find_one(
@@ -57,14 +57,15 @@ Summary:"""
     
     # Call LLM
     messages = [{"role": "user", "content": prompt}]
-    response = await llm_client.chat_completion(
-        model=get_cheap_model(),
-        messages=messages,
+    llm = llm_service.get_llm_instance(
+        model_name=get_cheap_model(),
         temperature=0.3,
-        max_tokens=500
+        max_completion_tokens=500
     )
+    lc_messages = llm_service.convert_messages(messages)
+    response = await llm.ainvoke(lc_messages)
     
-    summary_text = response.choices[0].message.content.strip()
+    summary_text = response.content.strip()
     
     # Store summary
     message_count = await db.messages.count_documents({"conversation_id": conversation_id})
