@@ -7,6 +7,10 @@ Observability: Emits tool_call_started, tool_call_completed, tool_call_failed ev
 """
 
 from datetime import datetime
+from typing import Type
+
+from langchain_core.tools import BaseTool
+from pydantic import BaseModel, Field
 
 from app.models.evidence import MemoryEvidenceEnvelope, ToolResult, ToolStatus
 from app.models.tool_spec import ToolCriticality, ToolSpec
@@ -92,3 +96,27 @@ async def read_semantic_memory(user_id: str, query: str, top_k: int) -> MemoryEv
             provenance={"query": query, "error": str(e)},
             tool_result=ToolResult(status=ToolStatus.FAILED, error=str(e))
         )
+
+
+# LangChain BaseTool wrapper
+class ReadSemanticMemoryInput(BaseModel):
+    """Input schema for read_semantic_memory tool"""
+    user_id: str = Field(description="User ID (customer_id) to fetch semantic memories for")
+    query: str = Field(description="Query string to find relevant learned patterns and insights")
+    top_k: int = Field(default=5, description="Number of top patterns to return")
+
+
+class ReadSemanticMemoryTool(BaseTool):
+    """LangChain tool wrapper for read_semantic_memory"""
+    name: str = "read_semantic_memory"
+    description: str = "Reads semantic memories (learned patterns) from Mem0. Returns relevant learned insights and patterns for the customer."
+    args_schema: Type[BaseModel] = ReadSemanticMemoryInput
+    
+    async def _arun(self, user_id: str, query: str, top_k: int) -> dict:
+        """Async execution - returns dict representation of MemoryEvidenceEnvelope"""
+        result = await read_semantic_memory(user_id, query, top_k)
+        return result.dict()
+    
+    def _run(self, user_id: str, query: str, top_k: int) -> dict:
+        """Sync execution - not supported for async tools"""
+        raise NotImplementedError("This tool only supports async execution")

@@ -7,7 +7,10 @@ Observability: Emits tool_call_started, tool_call_completed, tool_call_failed ev
 """
 
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Type
+
+from langchain_core.tools import BaseTool
+from pydantic import BaseModel, Field
 
 from app.models.evidence import IncidentEvidenceEnvelope, ToolResult, ToolStatus
 from app.models.tool_spec import ToolCriticality, ToolSpec
@@ -91,3 +94,26 @@ async def get_incident_signals(scope: Dict, time_window: str) -> IncidentEvidenc
             provenance={"query": "get_incident_signals", "error": str(e)},
             tool_result=ToolResult(status=ToolStatus.FAILED, error=str(e))
         )
+
+
+# LangChain BaseTool wrapper
+class GetIncidentSignalsInput(BaseModel):
+    """Input schema for get_incident_signals tool"""
+    scope: Dict = Field(description="Scope dictionary with order_id, customer_id, zone_id, or restaurant_id")
+    time_window: str = Field(default="24h", description="Time window for incident search (e.g., '24h', '7d')")
+
+
+class GetIncidentSignalsTool(BaseTool):
+    """LangChain tool wrapper for get_incident_signals"""
+    name: str = "get_incident_signals"
+    description: str = "Fetches incident signals from MongoDB. Returns relevant incidents matching scope (order_id, customer_id, zone_id, restaurant_id) within the specified time window."
+    args_schema: Type[BaseModel] = GetIncidentSignalsInput
+    
+    async def _arun(self, scope: Dict, time_window: str) -> dict:
+        """Async execution - returns dict representation of IncidentEvidenceEnvelope"""
+        result = await get_incident_signals(scope, time_window)
+        return result.dict()
+    
+    def _run(self, scope: Dict, time_window: str) -> dict:
+        """Sync execution - not supported for async tools"""
+        raise NotImplementedError("This tool only supports async execution")

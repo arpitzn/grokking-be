@@ -7,7 +7,10 @@ Observability: Emits tool_call_started, tool_call_completed, tool_call_failed ev
 """
 
 from datetime import datetime
-from typing import Dict
+from typing import Dict, Type
+
+from langchain_core.tools import BaseTool
+from pydantic import BaseModel, Field
 
 from app.models.evidence import ToolResult, ToolStatus, ZoneEvidenceEnvelope
 from app.models.tool_spec import ToolCriticality, ToolSpec
@@ -87,3 +90,26 @@ async def get_zone_ops_metrics(zone_id: str, time_window: str) -> ZoneEvidenceEn
             provenance={"query": "get_zone_ops_metrics", "error": str(e)},
             tool_result=ToolResult(status=ToolStatus.FAILED, error=str(e))
         )
+
+
+# LangChain BaseTool wrapper
+class GetZoneOpsMetricsInput(BaseModel):
+    """Input schema for get_zone_ops_metrics tool"""
+    zone_id: str = Field(description="Zone ID to fetch operations metrics for")
+    time_window: str = Field(default="24h", description="Time window for metrics (e.g., '24h', '7d')")
+
+
+class GetZoneOpsMetricsTool(BaseTool):
+    """LangChain tool wrapper for get_zone_ops_metrics"""
+    name: str = "get_zone_ops_metrics"
+    description: str = "Fetches zone operations metrics from MongoDB. Returns delivery performance, incident rates, active drivers, and operational health indicators."
+    args_schema: Type[BaseModel] = GetZoneOpsMetricsInput
+    
+    async def _arun(self, zone_id: str, time_window: str) -> dict:
+        """Async execution - returns dict representation of ZoneEvidenceEnvelope"""
+        result = await get_zone_ops_metrics(zone_id, time_window)
+        return result.dict()
+    
+    def _run(self, zone_id: str, time_window: str) -> dict:
+        """Sync execution - not supported for async tools"""
+        raise NotImplementedError("This tool only supports async execution")

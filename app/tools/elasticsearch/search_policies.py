@@ -7,7 +7,10 @@ Observability: Emits tool_call_started, tool_call_completed, tool_call_failed ev
 """
 
 from datetime import datetime
-from typing import Dict
+from typing import Dict, Type
+
+from langchain_core.tools import BaseTool
+from pydantic import BaseModel, Field
 
 from app.models.evidence import PolicyEvidenceEnvelope, ToolResult, ToolStatus
 from app.models.tool_spec import ToolCriticality, ToolSpec
@@ -97,3 +100,27 @@ async def search_policies(query: str, filters: Dict, top_k: int) -> PolicyEviden
             provenance={"query": query, "error": str(e)},
             tool_result=ToolResult(status=ToolStatus.FAILED, error=str(e))
         )
+
+
+# LangChain BaseTool wrapper
+class SearchPoliciesInput(BaseModel):
+    """Input schema for search_policies tool"""
+    query: str = Field(description="Search query string for policy documents")
+    filters: Dict = Field(default={}, description="Filters dictionary (e.g., {'issue_type': 'refund'})")
+    top_k: int = Field(default=5, description="Number of top results to return")
+
+
+class SearchPoliciesTool(BaseTool):
+    """LangChain tool wrapper for search_policies"""
+    name: str = "search_policies"
+    description: str = "Searches policy documents in Elasticsearch. Returns relevant policies, SOPs, and SLAs matching the query and filters."
+    args_schema: Type[BaseModel] = SearchPoliciesInput
+    
+    async def _arun(self, query: str, filters: Dict, top_k: int) -> dict:
+        """Async execution - returns dict representation of PolicyEvidenceEnvelope"""
+        result = await search_policies(query, filters, top_k)
+        return result.dict()
+    
+    def _run(self, query: str, filters: Dict, top_k: int) -> dict:
+        """Sync execution - not supported for async tools"""
+        raise NotImplementedError("This tool only supports async execution")

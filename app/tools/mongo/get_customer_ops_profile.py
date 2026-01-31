@@ -7,6 +7,10 @@ Observability: Emits tool_call_started, tool_call_completed, tool_call_failed ev
 """
 
 from datetime import datetime
+from typing import Type
+
+from langchain_core.tools import BaseTool
+from pydantic import BaseModel, Field
 
 from app.models.evidence import CustomerEvidenceEnvelope, ToolResult, ToolStatus
 from app.models.tool_spec import ToolCriticality, ToolSpec
@@ -86,3 +90,25 @@ async def get_customer_ops_profile(customer_id: str) -> CustomerEvidenceEnvelope
             provenance={"query": "get_customer_ops_profile", "error": str(e)},
             tool_result=ToolResult(status=ToolStatus.FAILED, error=str(e))
         )
+
+
+# LangChain BaseTool wrapper
+class GetCustomerOpsProfileInput(BaseModel):
+    """Input schema for get_customer_ops_profile tool"""
+    customer_id: str = Field(description="Customer ID to fetch operations profile for")
+
+
+class GetCustomerOpsProfileTool(BaseTool):
+    """LangChain tool wrapper for get_customer_ops_profile"""
+    name: str = "get_customer_ops_profile"
+    description: str = "Fetches customer operations profile from MongoDB. Returns customer history, preferences, lifetime value, refund history, and operational metrics."
+    args_schema: Type[BaseModel] = GetCustomerOpsProfileInput
+    
+    async def _arun(self, customer_id: str) -> dict:
+        """Async execution - returns dict representation of CustomerEvidenceEnvelope"""
+        result = await get_customer_ops_profile(customer_id)
+        return result.dict()
+    
+    def _run(self, customer_id: str) -> dict:
+        """Sync execution - not supported for async tools"""
+        raise NotImplementedError("This tool only supports async execution")

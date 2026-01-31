@@ -7,13 +7,13 @@ from app.agents.guardrails_agent import guardrails_node
 from app.agents.human_escalation_agent import human_escalation_node
 from app.agents.ingestion_agent import ingestion_node
 from app.agents.intent_classification_agent import intent_classification_node
-from app.agents.memory_retrieval_agent import memory_retrieval_node
 from app.agents.memory_write_agent import memory_write_node
-from app.agents.mongo_retrieval_agent import mongo_retrieval_node
 from app.agents.planner_agent import planner_node
-from app.agents.policy_rag_agent import policy_rag_node
 from app.agents.reasoning_agent import reasoning_node
 from app.agents.response_synthesis_agent import response_synthesis_node
+from app.agents.subgraphs.memory_retrieval_subgraph import create_memory_retrieval_subgraph
+from app.agents.subgraphs.mongo_retrieval_subgraph import create_mongo_retrieval_subgraph
+from app.agents.subgraphs.policy_rag_subgraph import create_policy_rag_subgraph
 from langgraph.graph import END, StateGraph
 from langgraph.types import Send
 
@@ -118,10 +118,14 @@ def create_graph():
     graph.add_node("intent_classification", intent_classification_node)
     graph.add_node("planner", planner_node)
     
-    # Parallel retrieval stage (fan-out)
-    graph.add_node("mongo_retrieval", mongo_retrieval_node)
-    graph.add_node("policy_rag", policy_rag_node)
-    graph.add_node("memory_retrieval", memory_retrieval_node)
+    # Parallel retrieval stage (fan-out) - using agentic subgraphs
+    mongo_subgraph = create_mongo_retrieval_subgraph()
+    policy_subgraph = create_policy_rag_subgraph()
+    memory_subgraph = create_memory_retrieval_subgraph()
+    
+    graph.add_node("mongo_retrieval", mongo_subgraph)
+    graph.add_node("policy_rag", policy_subgraph)
+    graph.add_node("memory_retrieval", memory_subgraph)
     
     # Decision stage
     graph.add_node("reasoning", reasoning_node)

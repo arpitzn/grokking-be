@@ -7,6 +7,10 @@ Observability: Emits tool_call_started, tool_call_completed, tool_call_failed ev
 """
 
 from datetime import datetime
+from typing import Type
+
+from langchain_core.tools import BaseTool
+from pydantic import BaseModel, Field
 
 from app.models.evidence import RestaurantEvidenceEnvelope, ToolResult, ToolStatus
 from app.models.tool_spec import ToolCriticality, ToolSpec
@@ -84,3 +88,26 @@ async def get_restaurant_ops(restaurant_id: str, time_window: str) -> Restaurant
             provenance={"query": "get_restaurant_ops", "error": str(e)},
             tool_result=ToolResult(status=ToolStatus.FAILED, error=str(e))
         )
+
+
+# LangChain BaseTool wrapper
+class GetRestaurantOpsInput(BaseModel):
+    """Input schema for get_restaurant_ops tool"""
+    restaurant_id: str = Field(description="Restaurant ID to fetch operations data for")
+    time_window: str = Field(default="24h", description="Time window for operations data (e.g., '24h', '7d')")
+
+
+class GetRestaurantOpsTool(BaseTool):
+    """LangChain tool wrapper for get_restaurant_ops"""
+    name: str = "get_restaurant_ops"
+    description: str = "Fetches restaurant operations data from MongoDB. Returns prep time metrics, quality ratings, complaint counts, order volume, and operational status."
+    args_schema: Type[BaseModel] = GetRestaurantOpsInput
+    
+    async def _arun(self, restaurant_id: str, time_window: str) -> dict:
+        """Async execution - returns dict representation of RestaurantEvidenceEnvelope"""
+        result = await get_restaurant_ops(restaurant_id, time_window)
+        return result.dict()
+    
+    def _run(self, restaurant_id: str, time_window: str) -> dict:
+        """Sync execution - not supported for async tools"""
+        raise NotImplementedError("This tool only supports async execution")

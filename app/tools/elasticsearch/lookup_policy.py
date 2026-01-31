@@ -7,7 +7,10 @@ Observability: Emits tool_call_started, tool_call_completed, tool_call_failed ev
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Type
+
+from langchain_core.tools import BaseTool
+from pydantic import BaseModel, Field
 
 from app.models.evidence import PolicyEvidenceEnvelope, ToolResult, ToolStatus
 from app.models.tool_spec import ToolCriticality, ToolSpec
@@ -83,3 +86,26 @@ async def lookup_policy(doc_id: str, section_id: Optional[str] = None) -> Policy
             provenance={"query": "lookup_policy", "doc_id": doc_id, "error": str(e)},
             tool_result=ToolResult(status=ToolStatus.FAILED, error=str(e))
         )
+
+
+# LangChain BaseTool wrapper
+class LookupPolicyInput(BaseModel):
+    """Input schema for lookup_policy tool"""
+    doc_id: str = Field(description="Policy document ID to lookup (e.g., 'POL-REFUND-001')")
+    section_id: Optional[str] = Field(default=None, description="Optional section ID within the policy document")
+
+
+class LookupPolicyTool(BaseTool):
+    """LangChain tool wrapper for lookup_policy"""
+    name: str = "lookup_policy"
+    description: str = "Looks up specific policy document by ID in Elasticsearch. Returns full policy content or specific section if section_id is provided."
+    args_schema: Type[BaseModel] = LookupPolicyInput
+    
+    async def _arun(self, doc_id: str, section_id: Optional[str] = None) -> dict:
+        """Async execution - returns dict representation of PolicyEvidenceEnvelope"""
+        result = await lookup_policy(doc_id, section_id)
+        return result.dict()
+    
+    def _run(self, doc_id: str, section_id: Optional[str] = None) -> dict:
+        """Sync execution - not supported for async tools"""
+        raise NotImplementedError("This tool only supports async execution")

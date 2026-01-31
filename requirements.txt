@@ -41,6 +41,7 @@ python-dotenv==1.0.1
 httpx==0.28.1  # For async HTTP requests
 tenacity==8.2.3  # Retry logic
 tiktoken==0.8.0
+pyyaml==6.0.1  # For loading YAML config files
 
 # Testing
 pytest==7.4.3

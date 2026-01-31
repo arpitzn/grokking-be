@@ -7,6 +7,10 @@ Observability: Emits tool_call_started, tool_call_completed, tool_call_failed ev
 """
 
 from datetime import datetime
+from typing import Type
+
+from langchain_core.tools import BaseTool
+from pydantic import BaseModel, Field
 
 from app.models.evidence import CaseEvidenceEnvelope, ToolResult, ToolStatus
 from app.models.tool_spec import ToolCriticality, ToolSpec
@@ -83,3 +87,25 @@ async def get_case_context(case_id: str) -> CaseEvidenceEnvelope:
             provenance={"query": "get_case_context", "error": str(e)},
             tool_result=ToolResult(status=ToolStatus.FAILED, error=str(e))
         )
+
+
+# LangChain BaseTool wrapper
+class GetCaseContextInput(BaseModel):
+    """Input schema for get_case_context tool"""
+    case_id: str = Field(description="Case ID (conversation_id) to fetch aggregated context for")
+
+
+class GetCaseContextTool(BaseTool):
+    """LangChain tool wrapper for get_case_context"""
+    name: str = "get_case_context"
+    description: str = "Fetches aggregated case context from MongoDB. Returns consolidated view of case history, related orders, agent notes, and resolution history."
+    args_schema: Type[BaseModel] = GetCaseContextInput
+    
+    async def _arun(self, case_id: str) -> dict:
+        """Async execution - returns dict representation of CaseEvidenceEnvelope"""
+        result = await get_case_context(case_id)
+        return result.dict()
+    
+    def _run(self, case_id: str) -> dict:
+        """Sync execution - not supported for async tools"""
+        raise NotImplementedError("This tool only supports async execution")

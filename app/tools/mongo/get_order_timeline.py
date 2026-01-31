@@ -7,7 +7,10 @@ Observability: Emits tool_call_started, tool_call_completed, tool_call_failed ev
 """
 
 from datetime import datetime
-from typing import List
+from typing import List, Type
+
+from langchain_core.tools import BaseTool
+from pydantic import BaseModel, Field
 
 from app.models.evidence import OrderEvidenceEnvelope, ToolResult, ToolStatus
 from app.models.tool_spec import ToolCriticality, ToolSpec
@@ -88,3 +91,29 @@ async def get_order_timeline(order_id: str, include: List[str]) -> OrderEvidence
             provenance={"query": "get_order_timeline", "error": str(e)},
             tool_result=ToolResult(status=ToolStatus.FAILED, error=str(e))
         )
+
+
+# LangChain BaseTool wrapper
+class GetOrderTimelineInput(BaseModel):
+    """Input schema for get_order_timeline tool"""
+    order_id: str = Field(description="Order ID to fetch timeline for")
+    include: List[str] = Field(
+        default=["events", "status", "timestamps"],
+        description="Fields to include: events, status, timestamps"
+    )
+
+
+class GetOrderTimelineTool(BaseTool):
+    """LangChain tool wrapper for get_order_timeline"""
+    name: str = "get_order_timeline"
+    description: str = "Fetches order timeline from MongoDB with events, status, and timestamps. Returns order events, delivery times, and status information."
+    args_schema: Type[BaseModel] = GetOrderTimelineInput
+    
+    async def _arun(self, order_id: str, include: List[str]) -> dict:
+        """Async execution - returns dict representation of OrderEvidenceEnvelope"""
+        result = await get_order_timeline(order_id, include)
+        return result.dict()
+    
+    def _run(self, order_id: str, include: List[str]) -> dict:
+        """Sync execution - not supported for async tools"""
+        raise NotImplementedError("This tool only supports async execution")
