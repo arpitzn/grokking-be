@@ -131,7 +131,8 @@ async def chat_stream(request: CaseRequest):
 
     async def event_generator():
         """Generate SSE events with Chain-of-Thought streaming and custom UI events"""
-        streamer = EventStreamer()
+        # Initialize streamer with debug mode from request
+        streamer = EventStreamer(debug_mode=request.debug_mode or False)
         
         try:
             # Initialize state with new AgentState structure

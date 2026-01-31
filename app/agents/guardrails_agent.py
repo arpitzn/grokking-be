@@ -15,7 +15,7 @@ IMPORTANT: This is the ONLY agent that:
 
 from typing import Dict, Any, List
 
-from app.agent.state import AgentState
+from app.agent.state import AgentState, emit_phase_event
 from app.models.tool_spec import ToolCriticality
 
 # Hardcoded confidence thresholds (owned by Guardrails Agent)
@@ -149,14 +149,12 @@ async def guardrails_node(state: AgentState) -> AgentState:
         "routing_decision": routing_decision,  # FINAL routing decision
     }
     
-    # Add CoT trace entry
-    turn_number = state.get("turn_number", 1)
-    if "cot_trace" not in state:
-        state["cot_trace"] = []
-    state["cot_trace"].append({
-        "phase": "guardrails",
-        "turn": turn_number,
-        "content": f"[Turn {turn_number}] Routing decision: {routing_decision} (confidence: {analysis_confidence:.2f}, compliance: {compliance_result['passed']})"
-    })
+    # Emit phase event
+    emit_phase_event(
+        state,
+        "guardrails",
+        f"Routing decision: {routing_decision}",
+        metadata={"compliance": compliance_result}
+    )
     
     return state

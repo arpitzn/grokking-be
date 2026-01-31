@@ -8,7 +8,7 @@ Agent Responsibility:
 
 from typing import Dict, Any
 
-from app.agent.state import AgentState
+from app.agent.state import AgentState, emit_phase_event
 from app.infra.llm import get_llm_service, get_expensive_model
 
 
@@ -70,14 +70,7 @@ Be empathetic, clear, and professional. Keep it concise (2-3 paragraphs).
     # Populate final_response
     state["final_response"] = final_response
     
-    # Add CoT trace entry
-    turn_number = state.get("turn_number", 1)
-    if "cot_trace" not in state:
-        state["cot_trace"] = []
-    state["cot_trace"].append({
-        "phase": "response_synthesis",
-        "turn": turn_number,
-        "content": f"[Turn {turn_number}] Generated response for {intent.get('issue_type', 'unknown')} issue"
-    })
+    # Emit phase event
+    emit_phase_event(state, "generating", "Composing final response")
     
     return state

@@ -14,7 +14,7 @@ This agent MUST execute before Planner.
 import json
 from typing import Dict, Any
 
-from app.agent.state import AgentState
+from app.agent.state import AgentState, emit_phase_event
 from app.infra.llm import get_llm_service, get_cheap_model
 
 
@@ -94,14 +94,12 @@ Respond ONLY with valid JSON:
         "reasoning": intent_data.get("reasoning", "")
     }
     
-    # Add CoT trace entry
-    turn_number = state.get("turn_number", 1)
-    if "cot_trace" not in state:
-        state["cot_trace"] = []
-    state["cot_trace"].append({
-        "phase": "intent_classification",
-        "turn": turn_number,
-        "content": f"[Turn {turn_number}] Classified as {state['intent']['issue_type']} (severity: {state['intent']['severity']}, SLA_risk: {state['intent']['SLA_risk']})"
-    })
+    # Emit phase event
+    emit_phase_event(
+        state,
+        "intent_classification",
+        f"{state['intent']['issue_type']} (severity: {state['intent']['severity']})",
+        metadata={"safety_flags": state['intent']['safety_flags']}
+    )
     
     return state

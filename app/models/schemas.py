@@ -117,6 +117,7 @@ class CaseRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000, description="User message")
     persona: Optional[str] = Field("customer", description="Persona: customer, agent, admin")
     channel: Optional[str] = Field("web", description="Channel: web, mobile, phone, chat")
+    debug_mode: Optional[bool] = Field(False, description="Enable debug mode for full event visibility")
 
 
 class HandoverPacket(BaseModel):
@@ -133,7 +134,7 @@ class HandoverPacket(BaseModel):
     analysis: Dict[str, Any]
     guardrails: Dict[str, Any]
     raw_text: str
-    cot_trace: List[Dict[str, Any]] = []  # turn can be int, phase/content are str
+    events: List[Dict[str, Any]] = []  # Unified event stream (replaces cot_trace)
 
 
 class EscalationResponse(BaseModel):

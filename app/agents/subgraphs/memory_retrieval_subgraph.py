@@ -6,7 +6,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from app.agent.state import AgentState
+from app.agent.state import AgentState, emit_phase_event
 from app.infra.llm import get_cheap_model, get_llm_service
 from app.infra.retrieval_prompts import get_prompts
 from app.tools.registry import MEMORY_TOOLS
@@ -37,8 +37,6 @@ def create_memory_retrieval_subgraph():
             state["evidence"] = {}
         if "memory" not in state["evidence"]:
             state["evidence"]["memory"] = []
-        if "cot_trace" not in state:
-            state["cot_trace"] = []
         
         # Get prompts with variables substituted
         system_prompt, user_prompt = get_prompts(
@@ -65,14 +63,6 @@ def create_memory_retrieval_subgraph():
         try:
             response = llm_with_tools.invoke(messages)
             
-            # Log to CoT trace
-            turn = state.get("turn_number", 1)
-            state["cot_trace"].append({
-                "phase": "memory_retrieval",
-                "turn": turn,
-                "content": f"[Turn {turn}] {response.content or 'Calling tools...'}"
-            })
-            
             # Update messages
             if not state["messages"]:
                 state["messages"] = messages + [response]
@@ -88,6 +78,7 @@ def create_memory_retrieval_subgraph():
     def extract_evidence(state: AgentState) -> AgentState:
         """Extract evidence from tool messages"""
         messages = state.get("messages", [])
+        results = []
         
         # Find ToolMessages and extract evidence
         for msg in messages:
@@ -101,9 +92,19 @@ def create_memory_retrieval_subgraph():
                     if "memory" not in state["evidence"]:
                         state["evidence"]["memory"] = []
                     state["evidence"]["memory"].append(evidence)
+                    results.append(evidence)
                 except (json.JSONDecodeError, Exception) as e:
                     logger.debug(f"Skipping malformed evidence: {e}")
                     pass  # Skip malformed evidence
+        
+        # Emit phase event after evidence extraction
+        if results:
+            emit_phase_event(
+                state,
+                "searching",
+                f"Retrieved {len(results)} items from Memory",
+                metadata={"source": "memory", "count": len(results)}
+            )
         
         return state
     

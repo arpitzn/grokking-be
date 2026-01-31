@@ -3,9 +3,11 @@
 import json
 import asyncio
 import hashlib
+import re
 from enum import Enum
 from typing import Dict, Any, AsyncGenerator
 
+from app.agent.state import EventClass
 from app.utils.tool_observability import get_pending_events
 
 
@@ -49,61 +51,133 @@ class StreamStatus(str, Enum):
 class EventStreamer:
     """Simple, clean event streaming for SSE"""
     
-    def __init__(self):
-        self.seen_cot = 0
+    def __init__(self, debug_mode: bool = False):
+        self.debug_mode = debug_mode
+        self.seen_events = 0  # Single counter for unified event stream
         self.seen_evidence = {
             EvidenceSource.MONGO: 0,
             EvidenceSource.POLICY: 0,
             EvidenceSource.MEMORY: 0
         }
         self.full_response = ""
-        self.seen_hypotheses = set()  # Track seen hypothesis content hashes
-        self.seen_incident_banners = set()  # Track seen incident banner content
-        self.seen_cot_hashes = set()  # Track seen CoT trace entry hashes for deduplication
+        self.phase_emitted = set()  # Track which phases already shown
         self.seen_evidence_hashes = {
             EvidenceSource.MONGO: set(),
             EvidenceSource.POLICY: set(),
             EvidenceSource.MEMORY: set()
         }  # Track seen evidence item hashes for deduplication
     
-    def _format_sse(self, data: Dict[str, Any]) -> str:
-        """Format data as SSE event"""
+    def _should_stream(self, event_class: str) -> bool:
+        """Determine if event should be streamed based on debug mode"""
+        if self.debug_mode:
+            return True
+        return event_class in ["user", "explainability"]
+    
+    def _sanitize_content(self, content: str) -> str:
+        """Remove unresolved template variables and sensitive patterns"""
+        # Remove {{variable}} patterns
+        sanitized = re.sub(r'\{\{[^}]+\}\}', '[redacted]', content)
+        # Remove {variable} patterns
+        sanitized = re.sub(r'\{[a-zA-Z_][a-zA-Z0-9_]*\}', '[redacted]', sanitized)
+        return sanitized
+    
+    def _format_sse(self, data: Dict[str, Any], event_class: str) -> str:
+        """Format data as SSE event with classification and filtering"""
+        if not self._should_stream(event_class):
+            return ""
+        
+        data["class"] = event_class
+        
+        # Sanitize content fields
+        if "content" in data:
+            data["content"] = self._sanitize_content(data["content"])
+        
         return f"data: {json.dumps(data)}\n\n"
     
     async def stream_tool_events(self) -> AsyncGenerator[str, None]:
-        """Stream tool observability events"""
+        """Stream tool observability events (DEBUG class - hidden by default)"""
         for event in get_pending_events():
-            yield self._format_sse({
+            result = self._format_sse({
                 "event": EventType.TOOL_EVENT,
                 "type": event["type"],
                 "payload": event["payload"]
-            })
+            }, EventClass.DEBUG.value)
+            if result:  # Only yield if not filtered
+                yield result
     
-    async def stream_cot_trace(self, node_output: Dict[str, Any]) -> AsyncGenerator[str, None]:
-        """Stream new CoT trace entries"""
-        if "cot_trace" not in node_output:
+    async def stream_phase_events(self, node_output: Dict[str, Any]) -> AsyncGenerator[str, None]:
+        """
+        Stream phase-level summaries instead of verbose CoT entries.
+        Only emits one summary per phase (deduplicated).
+        """
+        if "events" not in node_output:
             return
         
-        cot_trace = node_output["cot_trace"]
-        new_entries = cot_trace[self.seen_cot:]
+        events = node_output["events"]
+        new_events = events[self.seen_events:]
         
-        # Deduplicate entries by content hash
-        unique_new_entries = []
-        for entry in new_entries:
-            entry_str = json.dumps(entry, sort_keys=True)
-            entry_hash = hashlib.md5(entry_str.encode()).hexdigest()
-            if entry_hash not in self.seen_cot_hashes:
-                self.seen_cot_hashes.add(entry_hash)
-                unique_new_entries.append(entry)
+        for event in new_events:
+            phase = event.get("phase")
+            event_class = event.get("class", "explainability")
+            
+            # Only emit each phase once
+            if phase and phase not in self.phase_emitted:
+                self.phase_emitted.add(phase)
+                
+                # Create rich phase summary
+                summary = self._create_phase_summary(phase, event)
+                
+                result = self._format_sse({
+                    "event": EventType.THINKING,
+                    "phase": phase,
+                    "turn": event.get("turn", 1),
+                    "content": summary
+                }, event_class)
+                if result:  # Only yield if not filtered
+                    yield result
         
-        for entry in unique_new_entries:
-            yield self._format_sse({
-                "event": EventType.THINKING,
-                "phase": entry.get("phase"),
-                "turn": entry.get("turn", 1),
-                "content": entry.get("content")
-            })
-        self.seen_cot = len(cot_trace)
+        self.seen_events = len(events)
+    
+    def _create_phase_summary(self, phase: str, event: Dict) -> str:
+        """
+        Create concise, informative phase summary with metrics.
+        Falls back to event content if no custom summary defined.
+        """
+        content = event.get("content", "")
+        metadata = event.get("metadata", {})
+        
+        # Custom summaries with metrics
+        summaries = {
+            "ingestion": f"Processing customer inquiry: {content[:50]}..." if len(content) > 50 else content,
+            "intent_classification": f"Classified issue: {content}",
+            "planning": f"Planning: {content}",
+            "searching": self._format_search_summary(metadata),
+            "reasoning": self._format_reasoning_summary(metadata),
+            "generating": "Composing response...",
+            "guardrails": f"Compliance check: {content}"
+        }
+        
+        return summaries.get(phase, content)
+    
+    def _format_search_summary(self, metadata: Dict) -> str:
+        """Format search phase summary with evidence counts"""
+        agents = metadata.get("agents", [])
+        evidence_count = metadata.get("evidence_count", 0)
+        if agents and evidence_count > 0:
+            return f"Retrieved {evidence_count} evidence items from {len(agents)} sources"
+        elif evidence_count > 0:
+            return f"Retrieved {evidence_count} evidence items"
+        else:
+            return "Gathering evidence from multiple sources"
+    
+    def _format_reasoning_summary(self, metadata: Dict) -> str:
+        """Format reasoning phase summary with hypothesis count"""
+        hypothesis_count = metadata.get("hypothesis_count", 0)
+        confidence = metadata.get("confidence", 0.0)
+        if hypothesis_count > 0:
+            return f"Generated {hypothesis_count} hypotheses (confidence: {confidence:.2f})"
+        else:
+            return "Analyzing evidence and generating response strategy"
     
     async def stream_evidence(self, node_output: Dict[str, Any]) -> AsyncGenerator[str, None]:
         """Stream new evidence cards"""
@@ -126,11 +200,13 @@ class EventStreamer:
                         unique_new_items.append(item)
                 
                 for item in unique_new_items:
-                    yield self._format_sse({
+                    result = self._format_sse({
                         "event": EventType.EVIDENCE_CARD,
                         "source": source.value,
                         "data": item
-                    })
+                    }, EventClass.EXPLAINABILITY.value)
+                    if result:  # Only yield if not filtered
+                        yield result
                 self.seen_evidence[source] = len(source_list)
     
     async def stream_hypotheses(self, node_output: Dict[str, Any]) -> AsyncGenerator[str, None]:
@@ -139,17 +215,20 @@ class EventStreamer:
             return
         
         analysis = node_output["analysis"]
+        seen_hypotheses = set()
         for hyp in analysis.get("hypotheses", []):
             # Create hash of hypothesis content for deduplication
             hyp_str = json.dumps(hyp, sort_keys=True)
             hyp_hash = hashlib.md5(hyp_str.encode()).hexdigest()
             
-            if hyp_hash not in self.seen_hypotheses:
-                self.seen_hypotheses.add(hyp_hash)
-                yield self._format_sse({
+            if hyp_hash not in seen_hypotheses:
+                seen_hypotheses.add(hyp_hash)
+                result = self._format_sse({
                     "event": EventType.HYPOTHESIS_UPDATE,
                     "hypothesis": hyp
-                })
+                }, EventClass.EXPLAINABILITY.value)
+                if result:  # Only yield if not filtered
+                    yield result
     
     async def stream_refund_recommendation(self, node_output: Dict[str, Any]) -> AsyncGenerator[str, None]:
         """Stream refund recommendation if present"""
@@ -159,11 +238,13 @@ class EventStreamer:
         analysis = node_output["analysis"]
         for action in analysis.get("action_candidates", []):
             if "refund" in action.get("action", "").lower():
-                yield self._format_sse({
+                result = self._format_sse({
                     "event": EventType.REFUND_RECOMMENDATION,
                     "recommended": True,
                     "rationale": action.get("rationale", "")
-                })
+                }, EventClass.EXPLAINABILITY.value)
+                if result:  # Only yield if not filtered
+                    yield result
     
     async def stream_incident_banner(self, node_output: Dict[str, Any]) -> AsyncGenerator[str, None]:
         """Stream incident banner if safety flags present"""
@@ -180,33 +261,34 @@ class EventStreamer:
             }, sort_keys=True)
             banner_hash = hashlib.md5(banner_content.encode()).hexdigest()
             
-            if banner_hash not in self.seen_incident_banners:
-                self.seen_incident_banners.add(banner_hash)
-                yield self._format_sse({
+            # Use a simple set to track seen banners (recreated each call for simplicity)
+            # In production, this could be instance-level if needed
+            seen_banners = getattr(self, '_seen_banners', set())
+            if banner_hash not in seen_banners:
+                seen_banners.add(banner_hash)
+                self._seen_banners = seen_banners
+                result = self._format_sse({
                     "event": EventType.INCIDENT_BANNER,
                     "severity": intent.get("severity", "medium"),
                     "flags": safety_flags
-                })
+                }, EventClass.EXPLAINABILITY.value)
+                if result:  # Only yield if not filtered
+                    yield result
     
     async def stream_response(self, node_output: Dict[str, Any], chunk_size: int = 10) -> AsyncGenerator[str, None]:
-        """Stream final response token-by-token"""
+        """Stream final response token-by-token (USER class)"""
         if "final_response" not in node_output:
             return
         
         response_text = node_output["final_response"]
         
-        # Thinking phase
-        yield self._format_sse({
-            "event": EventType.THINKING,
-            "phase": ThinkingPhase.GENERATING,
-            "content": "Composing response..."
-        })
-        
         # Stream tokens
         for i in range(0, len(response_text), chunk_size):
             delta = response_text[i:i + chunk_size]
             self.full_response += delta
-            yield self._format_sse({"content": delta})
+            result = self._format_sse({"content": delta}, EventClass.USER.value)
+            if result:  # Only yield if not filtered
+                yield result
             await asyncio.sleep(0.05)
     
     async def stream_escalation(self, node_output: Dict[str, Any]) -> AsyncGenerator[str, None]:
@@ -215,11 +297,13 @@ class EventStreamer:
             return
         
         handover = node_output["handover_packet"]
-        yield self._format_sse({
+        result = self._format_sse({
             "event": EventType.ESCALATION,
             "escalation_id": handover.get("escalation_id"),
             "message": "Your case has been escalated to a human agent"
-        })
+        }, EventClass.USER.value)
+        if result:  # Only yield if not filtered
+            yield result
         self.full_response = "Your case has been escalated to a human agent. You will be contacted shortly."
     
     async def stream_node(self, node_name: str, node_output: Dict[str, Any]) -> AsyncGenerator[str, None]:
@@ -227,11 +311,15 @@ class EventStreamer:
         if not isinstance(node_output, dict):
             return
         
-        # Always stream CoT and evidence
-        async for event in self.stream_cot_trace(node_output):
+        # Stream phase events (replaces stream_cot_trace)
+        async for event in self.stream_phase_events(node_output):
             yield event
+        
+        # Stream evidence cards (EXPLAINABILITY class)
         async for event in self.stream_evidence(node_output):
             yield event
+        
+        # Stream incident banners (EXPLAINABILITY class)
         async for event in self.stream_incident_banner(node_output):
             yield event
         
@@ -252,7 +340,7 @@ class EventStreamer:
     
     def completion(self) -> str:
         """Return completion event"""
-        return self._format_sse({"status": StreamStatus.COMPLETED})
+        return self._format_sse({"status": StreamStatus.COMPLETED}, EventClass.USER.value)
     
     def done(self) -> str:
         """Return done marker"""
@@ -263,4 +351,4 @@ class EventStreamer:
         return self._format_sse({
             "error": str(error),
             "status": StreamStatus.ERROR
-        })
+        }, EventClass.USER.value)

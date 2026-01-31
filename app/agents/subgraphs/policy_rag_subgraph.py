@@ -6,7 +6,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from app.agent.state import AgentState
+from app.agent.state import AgentState, emit_phase_event
 from app.infra.llm import get_cheap_model, get_llm_service
 from app.infra.retrieval_prompts import get_prompts
 from app.tools.registry import POLICY_TOOLS
@@ -35,8 +35,6 @@ def create_policy_rag_subgraph():
             state["evidence"] = {}
         if "policy" not in state["evidence"]:
             state["evidence"]["policy"] = []
-        if "cot_trace" not in state:
-            state["cot_trace"] = []
         
         # Get prompts with variables substituted
         system_prompt, user_prompt = get_prompts(
@@ -61,13 +59,6 @@ def create_policy_rag_subgraph():
         try:
             response = llm_with_tools.invoke(messages)
             
-            turn = state.get("turn_number", 1)
-            state["cot_trace"].append({
-                "phase": "policy_retrieval",
-                "turn": turn,
-                "content": f"[Turn {turn}] {response.content or 'Calling tools...'}"
-            })
-            
             if not state["messages"]:
                 state["messages"] = messages + [response]
             else:
@@ -81,6 +72,7 @@ def create_policy_rag_subgraph():
     def extract_evidence(state: AgentState) -> AgentState:
         """Extract evidence from tool messages"""
         messages = state.get("messages", [])
+        results = []
         
         for msg in messages:
             if hasattr(msg, 'type') and msg.type == 'tool':
@@ -90,9 +82,19 @@ def create_policy_rag_subgraph():
                     if "policy" not in state["evidence"]:
                         state["evidence"]["policy"] = []
                     state["evidence"]["policy"].append(evidence)
+                    results.append(evidence)
                 except (json.JSONDecodeError, Exception) as e:
                     logger.debug(f"Skipping malformed evidence: {e}")
                     pass
+        
+        # Emit phase event after evidence extraction
+        if results:
+            emit_phase_event(
+                state,
+                "searching",
+                f"Retrieved {len(results)} items from Policy RAG",
+                metadata={"source": "policy", "count": len(results)}
+            )
         
         return state
     

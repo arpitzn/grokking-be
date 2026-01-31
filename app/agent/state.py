@@ -1,5 +1,6 @@
 """Agent state definition for LangGraph - Food Delivery Domain"""
 
+from enum import Enum
 from operator import add
 from typing import Annotated, Any, Dict, List, Optional, TypedDict
 
@@ -8,6 +9,13 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.models.schemas import CaseRequest
+
+
+class EventClass(str, Enum):
+    """Event classification for UI filtering"""
+    USER = "user"              # Final output, escalations, status
+    EXPLAINABILITY = "explainability"  # CoT summaries, evidence, hypotheses
+    DEBUG = "debug"            # Tool calls, internal state changes
 
 
 def merge_dicts(left: Dict, right: Dict) -> Dict:
@@ -49,7 +57,7 @@ class AgentState(TypedDict):
     - Decision: analysis (hypotheses[], action_candidates[], confidence, gaps), guardrails (compliance, routing_decision FINAL)
     - Outputs: final_response, handover_packet
     - Working Memory: working_memory (last 10 messages), conversation_summary (async summaries)
-    - Observability: trace_events, cot_trace
+    - Observability: events (unified event stream), phase_status (phase completion tracking)
     """
     
     # Input slice - PARALLEL UPDATES (subgraphs return full state)
@@ -79,11 +87,57 @@ class AgentState(TypedDict):
     turn_number: Annotated[int, take_right]  # Current turn in conversation
     
     # Observability - PARALLEL UPDATES from all nodes
-    trace_events: Annotated[List[Dict[str, Any]], add]
-    cot_trace: Annotated[List[Dict[str, Any]], add]  # turn can be int, phase/content are str
+    events: Annotated[List[Dict[str, Any]], add]  # Unified event stream (replaces trace_events and cot_trace)
+    phase_status: Annotated[Dict[str, str], take_right]  # Track phase completion for summary generation
     
     # Internal subgraph state - used by parallel retrieval subgraphs for LLM iterations
     messages: Annotated[List, add]  # LangChain messages for agentic tool calling
+
+
+def emit_phase_event(
+    state: AgentState, 
+    phase: str, 
+    content: str,
+    event_class: str = "explainability",
+    metadata: Optional[Dict[str, Any]] = None
+) -> None:
+    """
+    Centralized event emission - prevents code duplication across agents.
+    
+    Args:
+        state: Current agent state
+        phase: Phase name (ingestion, planning, searching, reasoning, etc.)
+        content: Human-readable summary of what happened
+        event_class: Classification (user, explainability, debug)
+        metadata: Optional additional data (tool counts, evidence counts, etc.)
+    
+    Example:
+        emit_phase_event(state, "planning", 
+            "Selected 3 retrieval agents for evidence gathering",
+            metadata={"agents": ["mongo", "policy", "memory"]})
+    """
+    turn = state.get("turn_number", 1)
+    
+    if "events" not in state:
+        state["events"] = []
+    
+    event = {
+        "phase": phase,
+        "turn": turn,
+        "content": content,
+        "class": event_class,
+        "timestamp": None  # Set by streamer
+    }
+    
+    if metadata:
+        event["metadata"] = metadata
+    
+    state["events"].append(event)
+    
+    # Track phase completion for summary generation
+    if "phase_status" not in state:
+        state["phase_status"] = {}
+    state["phase_status"][phase] = "completed"
 
 
 def create_initial_state(request: "CaseRequest", conversation_id: str) -> AgentState:
@@ -121,7 +175,7 @@ def create_initial_state(request: "CaseRequest", conversation_id: str) -> AgentS
         "conversation_summary": None,
         "conversation_history": [],
         "turn_number": 1,
-        "trace_events": [],
-        "cot_trace": [],
+        "events": [],
+        "phase_status": {},
         "messages": [],  # Internal subgraph state for LLM iterations
     }

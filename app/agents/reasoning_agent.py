@@ -10,7 +10,7 @@ Agent Responsibility:
 import json
 from typing import Dict, Any, List
 
-from app.agent.state import AgentState
+from app.agent.state import AgentState, emit_phase_event
 from app.infra.llm import get_llm_service, get_expensive_model
 
 
@@ -110,14 +110,15 @@ Respond ONLY with valid JSON:
         "gaps": analysis_data.get("gaps", [])
     }
     
-    # Add CoT trace entry
-    turn_number = state.get("turn_number", 1)
-    if "cot_trace" not in state:
-        state["cot_trace"] = []
-    state["cot_trace"].append({
-        "phase": "reasoning",
-        "turn": turn_number,
-        "content": f"[Turn {turn_number}] Generated {len(state['analysis']['hypotheses'])} hypotheses with confidence {state['analysis']['confidence']:.2f}"
-    })
+    # Emit phase event
+    emit_phase_event(
+        state,
+        "reasoning",
+        f"Generated {len(state['analysis']['hypotheses'])} hypotheses",
+        metadata={
+            "hypothesis_count": len(state['analysis']['hypotheses']),
+            "confidence": state['analysis']['confidence']
+        }
+    )
     
     return state

@@ -9,7 +9,7 @@ Agent Responsibility:
 import httpx
 from typing import Dict, Any
 
-from app.agent.state import AgentState
+from app.agent.state import AgentState, emit_phase_event
 from app.infra.config import settings
 
 
@@ -52,7 +52,7 @@ async def human_escalation_node(state: AgentState) -> AgentState:
             "routing_reason": "Low confidence" if not guardrails.get("confidence_gate_passed") else "Other"
         },
         "raw_text": case.get("raw_text", ""),
-        "cot_trace": state.get("cot_trace", [])
+        "events": state.get("events", [])  # Changed from cot_trace
     }
     
     # Call POST /escalations endpoint
@@ -76,14 +76,7 @@ async def human_escalation_node(state: AgentState) -> AgentState:
     # Populate handover_packet
     state["handover_packet"] = handover_packet
     
-    # Add CoT trace entry
-    turn_number = state.get("turn_number", 1)
-    if "cot_trace" not in state:
-        state["cot_trace"] = []
-    state["cot_trace"].append({
-        "phase": "human_escalation",
-        "turn": turn_number,
-        "content": f"[Turn {turn_number}] Created handover packet for {intent.get('issue_type', 'unknown')} issue"
-    })
+    # Emit phase event
+    emit_phase_event(state, "human_escalation", f"Escalating {intent.get('issue_type', 'unknown')} issue to human agent")
     
     return state

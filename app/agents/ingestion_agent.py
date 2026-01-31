@@ -9,7 +9,7 @@ Agent Responsibility:
 import re
 from typing import Dict, Any
 
-from app.agent.state import AgentState
+from app.agent.state import AgentState, emit_phase_event
 
 
 async def ingestion_node(state: AgentState) -> AgentState:
@@ -78,14 +78,9 @@ async def ingestion_node(state: AgentState) -> AgentState:
         "user_id": user_id
     }
     
-    # Add CoT trace entry
-    turn_number = state.get("turn_number", 1)
-    if "cot_trace" not in state:
-        state["cot_trace"] = []
-    state["cot_trace"].append({
-        "phase": "ingestion",
-        "turn": turn_number,
-        "content": f"[Turn {turn_number}] Extracted entities: order_id={order_id}, zone_id={zone_id}, restaurant_id={restaurant_id}"
-    })
+    # Emit phase event
+    persona = state.get("case", {}).get("persona", "customer")
+    channel = state.get("case", {}).get("channel", "web")
+    emit_phase_event(state, "ingestion", f"Processing {persona} inquiry via {channel}")
     
     return state

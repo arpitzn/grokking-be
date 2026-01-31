@@ -14,7 +14,7 @@ Intent Classification is a mandatory pre-planning signal.
 from typing import List, Dict, Any, Literal
 from pydantic import BaseModel, Field
 
-from app.agent.state import AgentState
+from app.agent.state import AgentState, emit_phase_event
 from app.infra.llm import get_llm_service, get_cheap_model
 
 
@@ -137,14 +137,18 @@ Guidelines:
         "initial_route": planning_output.initial_route
     }
     
-    # Add CoT trace with turn number
-    if "cot_trace" not in state:
-        state["cot_trace"] = []
-    state["cot_trace"].append({
-        "phase": "planning",
-        "turn": turn_number,
-        "content": f"[Turn {turn_number}] Selected agents: {planning_output.agents_to_activate}. Tools: {planning_output.tool_selection}. Reasoning: {planning_output.reasoning}. Advisory route: {planning_output.initial_route}"
-    })
+    # Emit phase event
+    emit_phase_event(
+        state,
+        "planning",
+        f"Selected {len(planning_output.agents_to_activate)} retrieval agents",
+        metadata={
+            "agents": planning_output.agents_to_activate,
+            "tools": planning_output.tool_selection,
+            "route": planning_output.initial_route,
+            "evidence_count": 0  # Will be updated by retrieval
+        }
+    )
     
     # Guardrails Agent has FINAL authority to override initial_route
     return state
