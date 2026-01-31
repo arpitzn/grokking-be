@@ -182,6 +182,123 @@ class ElasticsearchClient:
             logger.error(f"Elasticsearch list documents error: {e}")
             return []
     
+    async def list_all_documents(self) -> List[Dict[str, Any]]:
+        """
+        List all documents in the index (Area Manager access)
+        
+        Groups chunks by file, returns one entry per file
+        """
+        search_body = {
+            "query": {
+                "match_all": {}
+            },
+            "size": 10000,
+            "_source": [
+                "user_id", "category", "persona", "issue_type", "priority", "doc_weight",
+                "metadata.file_id", "metadata.filename", "metadata.created_date"
+            ],
+            "sort": [
+                {"metadata.created_date": {"order": "desc"}}
+            ]
+        }
+        
+        try:
+            response = await self.client.search(
+                index=self.index_name,
+                body=search_body
+            )
+            
+            # Group by file_id (includes user_id)
+            files_dict = {}
+            for hit in response["hits"]["hits"]:
+                source = hit["_source"]
+                metadata = source.get("metadata", {})
+                file_id = metadata.get("file_id", "")
+                
+                if file_id and file_id not in files_dict:
+                    files_dict[file_id] = {
+                        "filename": metadata.get("filename", "unknown"),
+                        "file_id": file_id,
+                        "user_id": source.get("user_id", ""),
+                        "category": source.get("category"),
+                        "persona": source.get("persona", []),
+                        "issue_type": source.get("issue_type", []),
+                        "priority": source.get("priority"),
+                        "doc_weight": source.get("doc_weight"),
+                        "chunk_count": 0,
+                        "created_at": metadata.get("created_date", "")
+                    }
+                
+                if file_id in files_dict:
+                    files_dict[file_id]["chunk_count"] += 1
+            
+            return list(files_dict.values())
+        except Exception as e:
+            logger.error(f"Elasticsearch list all documents error: {e}")
+            return []
+    
+    async def list_documents_by_persona(
+        self,
+        persona: str
+    ) -> List[Dict[str, Any]]:
+        """
+        List all documents where persona array contains the specified persona value
+        
+        Groups chunks by file, returns one entry per file
+        Filters documents where persona field (array) contains the specified persona
+        """
+        # Normalize persona to lowercase for case-insensitive matching
+        persona_lower = persona.lower()
+        
+        search_body = {
+            "query": {
+                "term": {"persona": persona_lower}
+            },
+            "size": 10000,
+            "_source": [
+                "user_id", "category", "persona", "issue_type", "priority", "doc_weight",
+                "metadata.file_id", "metadata.filename", "metadata.created_date"
+            ],
+            "sort": [
+                {"metadata.created_date": {"order": "desc"}}
+            ]
+        }
+        
+        try:
+            response = await self.client.search(
+                index=self.index_name,
+                body=search_body
+            )
+            
+            # Group by file_id (includes user_id)
+            files_dict = {}
+            for hit in response["hits"]["hits"]:
+                source = hit["_source"]
+                metadata = source.get("metadata", {})
+                file_id = metadata.get("file_id", "")
+                
+                if file_id and file_id not in files_dict:
+                    files_dict[file_id] = {
+                        "filename": metadata.get("filename", "unknown"),
+                        "file_id": file_id,
+                        "user_id": source.get("user_id", ""),
+                        "category": source.get("category"),
+                        "persona": source.get("persona", []),
+                        "issue_type": source.get("issue_type", []),
+                        "priority": source.get("priority"),
+                        "doc_weight": source.get("doc_weight"),
+                        "chunk_count": 0,
+                        "created_at": metadata.get("created_date", "")
+                    }
+                
+                if file_id in files_dict:
+                    files_dict[file_id]["chunk_count"] += 1
+            
+            return list(files_dict.values())
+        except Exception as e:
+            logger.error(f"Elasticsearch list documents by persona error: {e}")
+            return []
+    
     async def batch_index_documents(
         self,
         documents: List[Dict[str, Any]]
@@ -278,6 +395,71 @@ class ElasticsearchClient:
         return {
             "deleted": response.get("deleted", 0)
         }
+    
+    async def delete_files_by_persona(
+        self,
+        persona: str
+    ) -> Dict[str, Any]:
+        """
+        Delete all documents where persona array contains the specified persona
+        
+        Uses delete_by_query with term query on persona field
+        Returns count of deleted chunks
+        """
+        # Normalize persona to lowercase for case-insensitive matching
+        persona_lower = persona.lower()
+        
+        # Elasticsearch 8.x API: query parameter instead of body
+        response = await self.client.delete_by_query(
+            index=self.index_name,
+            query={
+                "term": {"persona": persona_lower}
+            },
+            wait_for_completion=True,  # Wait for operation to complete before returning
+            refresh=True  # Refresh index immediately so deletions are visible
+        )
+        
+        return {
+            "deleted": response.get("deleted", 0),
+            "persona": persona_lower
+        }
+    
+    async def get_document_by_file_id(
+        self,
+        file_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get a single document by file_id to check its persona field
+        
+        Returns the first chunk's metadata for the file, or None if not found
+        """
+        search_body = {
+            "query": {
+                "term": {"metadata.file_id": file_id}
+            },
+            "size": 1,
+            "_source": [
+                "persona", "metadata.file_id", "metadata.filename"
+            ]
+        }
+        
+        try:
+            response = await self.client.search(
+                index=self.index_name,
+                body=search_body
+            )
+            
+            if response["hits"]["hits"]:
+                source = response["hits"]["hits"][0]["_source"]
+                return {
+                    "persona": source.get("persona", []),
+                    "file_id": source.get("metadata", {}).get("file_id", ""),
+                    "filename": source.get("metadata", {}).get("filename", "")
+                }
+            return None
+        except Exception as e:
+            logger.error(f"Elasticsearch get document by file_id error: {e}")
+            return None
     
     async def health_check(self) -> Dict[str, Any]:
         """Check Elasticsearch cluster health with detailed info"""

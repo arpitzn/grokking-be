@@ -113,7 +113,9 @@ async def ingest_file(
     filename: str,
     mime_type: str,
     filters: DocumentFilters,
-    es_client: ElasticsearchClient
+    uploader_persona: str,
+    es_client: ElasticsearchClient,
+    uploader_subcategory: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Ingest a file into Elasticsearch for RAG using processor factory
@@ -232,6 +234,8 @@ async def ingest_file(
                     "total_chunks": total_chunks,
                     "created_date": created_date,
                     "created_at": created_date,  # Backward compatibility
+                    "uploader_persona": uploader_persona,  # Store who uploaded this
+                    "uploader_subcategory": uploader_subcategory if uploader_persona == 'end_customer' else None,
                 }
             })
         
