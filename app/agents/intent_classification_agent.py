@@ -95,11 +95,13 @@ Respond ONLY with valid JSON:
     }
     
     # Add CoT trace entry
+    turn_number = state.get("turn_number", 1)
     if "cot_trace" not in state:
         state["cot_trace"] = []
     state["cot_trace"].append({
         "phase": "intent_classification",
-        "content": f"Classified as {state['intent']['issue_type']} (severity: {state['intent']['severity']}, SLA_risk: {state['intent']['SLA_risk']})"
+        "turn": turn_number,
+        "content": f"[Turn {turn_number}] Classified as {state['intent']['issue_type']} (severity: {state['intent']['severity']}, SLA_risk: {state['intent']['SLA_risk']})"
     })
     
     return state

@@ -11,106 +11,135 @@ IMPORTANT: Planner depends on Intent Classification output.
 Intent Classification is a mandatory pre-planning signal.
 """
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Literal
+from pydantic import BaseModel, Field
 
 from app.agent.state import AgentState
+from app.infra.llm import get_llm_service, get_cheap_model
 
 
-def select_tools_for_intent(intent: Dict[str, Any], case: Dict[str, Any]) -> List[str]:
-    """
-    Select explicit tools based on intent and case context.
-    
-    Returns list of tool names (e.g., ["get_order_timeline", "search_policies"])
-    """
-    tool_selection = []
-    issue_type = intent.get("issue_type", "other")
-    case_entities = case
-    
-    # Base tool selection on issue_type
-    if issue_type == "refund":
-        if case_entities.get("order_id"):
-            tool_selection.append("get_order_timeline")
-        if case_entities.get("customer_id"):
-            tool_selection.append("get_customer_ops_profile")
-        tool_selection.append("search_policies")  # Need refund policy
-        tool_selection.append("read_episodic_memory")  # Past refund cases
-    
-    elif issue_type == "delivery_delay":
-        if case_entities.get("order_id"):
-            tool_selection.append("get_order_timeline")
-        if case_entities.get("zone_id"):
-            tool_selection.append("get_zone_ops_metrics")
-        tool_selection.append("search_policies")  # Need delivery SLA policy
-        tool_selection.append("read_episodic_memory")
-    
-    elif issue_type == "quality":
-        if case_entities.get("order_id"):
-            tool_selection.append("get_order_timeline")
-        if case_entities.get("restaurant_id"):
-            tool_selection.append("get_restaurant_ops")
-        tool_selection.append("search_policies")  # Need quality policy
-        tool_selection.append("read_episodic_memory")
-    
-    elif issue_type == "safety":
-        tool_selection.append("get_incident_signals")
-        tool_selection.append("search_policies")  # Need safety policy
-        tool_selection.append("read_episodic_memory")
-    
-    else:
-        # Default: minimal tool selection
-        if case_entities.get("order_id"):
-            tool_selection.append("get_order_timeline")
-        tool_selection.append("search_policies")
-    
-    return tool_selection
+class PlanningOutput(BaseModel):
+    """Structured output for planner LLM"""
+    tool_selection: List[str] = Field(
+        description="List of tool names to execute (e.g., ['get_order_timeline', 'search_policies'])"
+    )
+    retrieval_strategy: Literal["parallel", "sequential"] = Field(
+        default="parallel",
+        description="How to execute tools: parallel or sequential"
+    )
+    initial_route: Literal["auto", "human"] = Field(
+        description="Advisory routing decision: auto for auto-response, human for escalation"
+    )
+    reasoning: str = Field(
+        description="Brief explanation of tool selection and routing decision"
+    )
 
 
 async def planner_node(state: AgentState) -> AgentState:
     """
-    Planner node: Selects tools and creates retrieval plan.
+    Agentic planner: Uses LLM to decide which tools to call
     
-    Input: intent slice (from Intent Classification - MANDATORY), case slice
+    Input: intent slice (from Intent Classification - MANDATORY), case slice, conversation_history
     Output: plan slice (tool_selection, retrieval_strategy, context, initial_route ADVISORY)
     """
-    # Intent Classification output (mandatory signal)
     intent = state.get("intent", {})
-    issue_type = intent.get("issue_type", "other")
-    severity = intent.get("severity", "low")
-    SLA_risk = intent.get("SLA_risk", False)
-    safety_flags = intent.get("safety_flags", [])
-    
     case = state.get("case", {})
+    conversation_history = state.get("conversation_history", [])
+    turn_number = state.get("turn_number", 1)
     
-    # Select explicit tools based on intent
-    tool_selection = select_tools_for_intent(intent, case)
+    # Build context for LLM planner
+    available_tools = """
+    Available tools:
+    1. get_order_timeline - Fetch order events, status, timestamps
+    2. get_customer_ops_profile - Get customer history, refund count, VIP status
+    3. get_zone_ops_metrics - Get zone-level delivery metrics
+    4. get_incident_signals - Check for active incidents
+    5. get_restaurant_ops - Get restaurant operational data
+    6. get_case_context - Get case metadata
+    7. search_policies - Search policy documents (refund, SLA, quality)
+    8. lookup_policy - Get specific policy by ID
+    9. read_episodic_memory - Search past conversations
+    10. read_semantic_memory - Get user preferences and facts
+    """
     
-    # Determine advisory initial route based on intent signals
-    # This is ADVISORY - Guardrails has final authority
-    if safety_flags or severity == "high":
-        initial_route = "human"  # Advisory: recommend escalation
-    elif SLA_risk:
-        initial_route = "human"  # Advisory: recommend escalation
-    else:
-        initial_route = "auto"  # Advisory: recommend auto-response
+    # Add conversation context if multi-turn
+    history_context = ""
+    if turn_number > 1 and conversation_history:
+        history_context = f"\n\nConversation history (last {len(conversation_history)} messages):\n"
+        for msg in conversation_history[-3:]:  # Last 3 for context
+            history_context += f"{msg['role']}: {msg['content'][:100]}...\n"
     
-    # Populate state["plan"] with:
+    prompt = f"""You are a planning agent for a food delivery support system.
+
+Current query: {case.get('raw_text', '')}
+Turn number: {turn_number}
+
+Intent classification:
+- Issue type: {intent.get('issue_type', 'unknown')}
+- Severity: {intent.get('severity', 'low')}
+- SLA risk: {intent.get('SLA_risk', False)}
+- Safety flags: {intent.get('safety_flags', [])}
+
+Extracted entities:
+- Order ID: {case.get('order_id', 'none')}
+- Customer ID: {case.get('customer_id', 'none')}
+- Zone ID: {case.get('zone_id', 'none')}
+- Restaurant ID: {case.get('restaurant_id', 'none')}
+{history_context}
+
+{available_tools}
+
+Based on the query, intent, and entities, decide:
+1. Which tools should be called to gather relevant information?
+2. Should this be handled automatically or escalated to human?
+
+Guidelines:
+- For refund requests: get order timeline, customer profile, refund policy
+- For delivery delays: get order timeline, zone metrics, delivery SLA policy
+- For quality issues: get order timeline, restaurant ops, quality policy
+- For safety concerns: get incident signals, safety policy, escalate to human
+- Always search episodic memory to check past similar cases
+- If high severity or SLA risk, recommend human escalation
+"""
+    
+    # Call LLM with structured output
+    llm_service = get_llm_service()
+    llm = llm_service.get_structured_output_llm_instance(
+        model_name=get_cheap_model(),
+        schema=PlanningOutput,
+        temperature=0.3
+    )
+    
+    messages = [
+        {"role": "system", "content": "You are a planning agent. Analyze the query and decide which tools to use."},
+        {"role": "user", "content": prompt}
+    ]
+    
+    lc_messages = llm_service.convert_messages(messages)
+    response = await llm.ainvoke(lc_messages)
+    
+    # Parse structured output
+    planning_output: PlanningOutput = response
+    
+    # Populate state["plan"]
     state["plan"] = {
-        "tool_selection": tool_selection,  # List[str] - explicit tool names
-        "retrieval_strategy": "parallel",  # parallel | sequential
+        "tool_selection": planning_output.tool_selection,
+        "retrieval_strategy": planning_output.retrieval_strategy,
         "context": {
-            "issue_type": issue_type,
-            "severity": severity,
+            "issue_type": intent.get("issue_type"),
+            "severity": intent.get("severity"),
             "entities": case
         },
-        "initial_route": initial_route  # ADVISORY routing (auto | human)
+        "initial_route": planning_output.initial_route
     }
     
-    # Add CoT trace entry
+    # Add CoT trace with turn number
     if "cot_trace" not in state:
         state["cot_trace"] = []
     state["cot_trace"].append({
         "phase": "planning",
-        "content": f"Selected tools: {tool_selection}, Advisory route: {initial_route}"
+        "turn": turn_number,
+        "content": f"[Turn {turn_number}] Selected tools: {planning_output.tool_selection}. Reasoning: {planning_output.reasoning}. Advisory route: {planning_output.initial_route}"
     })
     
     # Guardrails Agent has FINAL authority to override initial_route

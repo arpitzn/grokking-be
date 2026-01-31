@@ -152,11 +152,13 @@ async def guardrails_node(state: AgentState) -> AgentState:
     }
     
     # Add CoT trace entry
+    turn_number = state.get("turn_number", 1)
     if "cot_trace" not in state:
         state["cot_trace"] = []
     state["cot_trace"].append({
         "phase": "guardrails",
-        "content": f"Routing decision: {routing_decision} (confidence: {analysis_confidence:.2f}, compliance: {compliance_result['passed']})"
+        "turn": turn_number,
+        "content": f"[Turn {turn_number}] Routing decision: {routing_decision} (confidence: {analysis_confidence:.2f}, compliance: {compliance_result['passed']})"
     })
     
     return state

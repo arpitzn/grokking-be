@@ -71,11 +71,13 @@ Be empathetic, clear, and professional. Keep it concise (2-3 paragraphs).
     state["final_response"] = final_response
     
     # Add CoT trace entry
+    turn_number = state.get("turn_number", 1)
     if "cot_trace" not in state:
         state["cot_trace"] = []
     state["cot_trace"].append({
         "phase": "response_synthesis",
-        "content": f"Generated response for {intent.get('issue_type', 'unknown')} issue"
+        "turn": turn_number,
+        "content": f"[Turn {turn_number}] Generated response for {intent.get('issue_type', 'unknown')} issue"
     })
     
     return state

@@ -79,11 +79,13 @@ async def ingestion_node(state: AgentState) -> AgentState:
     }
     
     # Add CoT trace entry
+    turn_number = state.get("turn_number", 1)
     if "cot_trace" not in state:
         state["cot_trace"] = []
     state["cot_trace"].append({
         "phase": "ingestion",
-        "content": f"Extracted entities: order_id={order_id}, zone_id={zone_id}, restaurant_id={restaurant_id}"
+        "turn": turn_number,
+        "content": f"[Turn {turn_number}] Extracted entities: order_id={order_id}, zone_id={zone_id}, restaurant_id={restaurant_id}"
     })
     
     return state

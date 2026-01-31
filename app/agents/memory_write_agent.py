@@ -78,14 +78,12 @@ async def memory_write_node(state: AgentState) -> AgentState:
         # Non-blocking failure - log but don't raise
         pass
     
-    # 2. Check if summarization needed (every 10 messages)
-    working_memory = state.get("working_memory", [])
-    message_count = len(working_memory)
-    
-    if message_count >= 10:
-        # Trigger async summarization (fire-and-forget)
-        conversation_id = case.get("conversation_id", "")
-        asyncio.create_task(summarize_conversation_async(conversation_id))
+    # 2. Trigger summarization if needed (every 10 messages)
+    conversation_id = case.get("conversation_id", "")
+    if conversation_id:
+        from app.services.summarization import trigger_summarization_if_needed
+        # Fire-and-forget async summarization
+        asyncio.create_task(trigger_summarization_if_needed(conversation_id))
     
     # Non-blocking, parallel execution
     return state

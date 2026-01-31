@@ -77,11 +77,13 @@ async def human_escalation_node(state: AgentState) -> AgentState:
     state["handover_packet"] = handover_packet
     
     # Add CoT trace entry
+    turn_number = state.get("turn_number", 1)
     if "cot_trace" not in state:
         state["cot_trace"] = []
     state["cot_trace"].append({
         "phase": "human_escalation",
-        "content": f"Created handover packet for {intent.get('issue_type', 'unknown')} issue"
+        "turn": turn_number,
+        "content": f"[Turn {turn_number}] Created handover packet for {intent.get('issue_type', 'unknown')} issue"
     })
     
     return state

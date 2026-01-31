@@ -158,6 +158,7 @@ async def chat_stream(request: CaseRequest):
                 "conversation_summary": None,
                 "trace_events": [],
                 "cot_trace": [],
+                "messages": [],  # Internal subgraph state for LLM iterations
             }
 
             # Build LangGraph config with callbacks and metadata
@@ -205,7 +206,7 @@ async def chat_stream(request: CaseRequest):
                         if "cot_trace" in node_output:
                             cot_trace = node_output["cot_trace"]
                             for entry in cot_trace[seen_cot_count:]:
-                                yield f"data: {json.dumps({'event': 'thinking', 'phase': entry['phase'], 'content': entry['content']})}\n\n"
+                                yield f"data: {json.dumps({'event': 'thinking', 'phase': entry.get('phase'), 'turn': entry.get('turn', 1), 'content': entry.get('content')})}\n\n"
                             seen_cot_count = len(cot_trace)
 
                         # Stream evidence cards as they appear

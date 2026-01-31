@@ -2,7 +2,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import chat, knowledge, health, threads, escalations
+from app.api import chat, knowledge, health, threads, escalations, memory
 import logging
 import json
 
@@ -138,6 +138,7 @@ app.include_router(knowledge.router)
 app.include_router(health.router)
 app.include_router(threads.router)
 app.include_router(escalations.router)
+app.include_router(memory.router)
 
 
 @app.get("/")

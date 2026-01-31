@@ -87,3 +87,14 @@ Summary:"""
     
     logger.info(f"Created summary for conversation {conversation_id}")
     return summary_text
+
+
+async def trigger_summarization_if_needed(conversation_id: str) -> Optional[str]:
+    """
+    Check if summarization is needed and trigger it
+    Returns summary text if created, None otherwise
+    """
+    from app.services.memory import should_summarize
+    if await should_summarize(conversation_id):
+        return await summarize_conversation(conversation_id)
+    return None

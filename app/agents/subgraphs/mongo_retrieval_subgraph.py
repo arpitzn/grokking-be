@@ -80,20 +80,24 @@ Fetch relevant MongoDB data based on the case context and intent.
             response = llm_with_tools.invoke(messages)
             
             # Add reasoning to CoT trace
+            turn_number = state.get("turn_number", 1)
             reasoning_text = response.content or "Calling tools..."
             state["cot_trace"].append({
                 "phase": "mongo_retrieval",
-                "content": f"Agent reasoning: {reasoning_text}"
+                "turn": turn_number,
+                "content": f"[Turn {turn_number}] Agent reasoning: {reasoning_text}"
             })
             
             # Store messages for next iteration
             state["messages"].extend([messages[-1], response])
             
         except Exception as e:
+            turn_number = state.get("turn_number", 1)
             logger.error(f"Error in mongo retrieval agent node: {e}")
             state["cot_trace"].append({
                 "phase": "mongo_retrieval",
-                "content": f"Error: {str(e)}"
+                "turn": turn_number,
+                "content": f"[Turn {turn_number}] Error: {str(e)}"
             })
             # Create empty response to continue
             response = AIMessage(content="Error occurred, stopping retrieval.")
@@ -157,11 +161,13 @@ Fetch relevant MongoDB data based on the case context and intent.
                     state["evidence"]["mongo"].append(evidence_envelope)
                     
                     # Add to CoT trace
+                    turn_number = state.get("turn_number", 1)
                     tool_name = evidence_envelope.get("provenance", {}).get("tool", "unknown")
                     status = evidence_envelope.get("tool_result", {}).get("status", "unknown")
                     state["cot_trace"].append({
                         "phase": "mongo_retrieval",
-                        "content": f"Tool {tool_name} executed: {status}"
+                        "turn": turn_number,
+                        "content": f"[Turn {turn_number}] Tool {tool_name} executed: {status}"
                     })
                 except Exception as e:
                     logger.error(f"Error processing tool result: {e}")

@@ -111,11 +111,13 @@ Respond ONLY with valid JSON:
     }
     
     # Add CoT trace entry
+    turn_number = state.get("turn_number", 1)
     if "cot_trace" not in state:
         state["cot_trace"] = []
     state["cot_trace"].append({
         "phase": "reasoning",
-        "content": f"Generated {len(state['analysis']['hypotheses'])} hypotheses with confidence {state['analysis']['confidence']:.2f}"
+        "turn": turn_number,
+        "content": f"[Turn {turn_number}] Generated {len(state['analysis']['hypotheses'])} hypotheses with confidence {state['analysis']['confidence']:.2f}"
     })
     
     return state
