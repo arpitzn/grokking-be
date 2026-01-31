@@ -113,7 +113,7 @@ class AgentState(TypedDict):
     - Evidence: evidence (mongo[], policy[], memory[])
     - Decision: analysis (hypotheses[], action_candidates[], confidence, gaps), guardrails (compliance, routing_decision FINAL)
     - Outputs: final_response, handover_packet
-    - Working Memory: working_memory (last 10 messages), conversation_summary (async summaries)
+    - Working Memory: working_memory (summary + recent messages)
     - Observability: events (unified event stream), phase_status (phase completion tracking)
     """
     
@@ -138,13 +138,8 @@ class AgentState(TypedDict):
     final_response: Annotated[str, take_right]
     handover_packet: Annotated[Optional[Dict[str, Any]], take_right]
     
-    # Working Memory Management
-    working_memory: Annotated[List[Dict[str, str]], take_right]  # Last N=10 messages (trimmed + summarized view)
-    conversation_summary: Annotated[Optional[str], take_right]  # Periodic async summary (stored in MongoDB)
-    
-    # Multi-turn conversation support
-    conversation_history: Annotated[List[Dict[str, str]], take_right]  # Last 5 messages (verbatim)
-    turn_number: Annotated[int, take_right]  # Current turn in conversation
+    # Working Memory Management (single source of truth)
+    working_memory: Annotated[List[Dict[str, str]], take_right]  # Summary + recent messages
     
     # Observability - PARALLEL UPDATES from all nodes
     events: Annotated[List[Dict[str, Any]], add]  # Unified event stream (replaces trace_events and cot_trace)
@@ -152,7 +147,7 @@ class AgentState(TypedDict):
     
     # Per-turn execution buffer - SINGLE WRITER (only reasoning/synthesis nodes write)
     # Retrieval subgraphs have private messages (not in parent state)
-    # Multi-turn continuity preserved via conversation_history
+    # Multi-turn continuity preserved via working_memory
     messages: Annotated[List, take_right]  # LangChain messages for reasoning/synthesis (per-turn buffer)
 
 
@@ -178,7 +173,10 @@ def emit_phase_event(
             "Selected 3 retrieval agents for evidence gathering",
             metadata={"agents": ["mongo", "policy", "memory"]})
     """
-    turn = state.get("turn_number", 1)
+    # Derive turn number from working memory length (approximate)
+    working_memory = state.get("working_memory", [])
+    conversation_messages = [m for m in working_memory if m.get("role") != "system"]
+    turn = (len(conversation_messages) // 2) + 1 if conversation_messages else 1
     
     if "events" not in state:
         state["events"] = []
@@ -202,16 +200,21 @@ def emit_phase_event(
     state["phase_status"][phase] = "completed"
 
 
-def create_initial_state(request: "CaseRequest", conversation_id: str) -> AgentState:
+def create_initial_state(
+    request: "CaseRequest", 
+    conversation_id: str,
+    working_memory: Optional[List[Dict[str, str]]] = None
+) -> AgentState:
     """
-    Create initial AgentState from a CaseRequest and conversation_id.
+    Create initial AgentState with working memory.
     
     Args:
         request: CaseRequest containing user message and metadata
         conversation_id: Conversation identifier
+        working_memory: Pre-built working memory (summary + recent messages)
         
     Returns:
-        Initialized AgentState with default values
+        Initialized AgentState with conversation context
     """
     return {
         "case": {
@@ -233,10 +236,7 @@ def create_initial_state(request: "CaseRequest", conversation_id: str) -> AgentS
         "guardrails": {},
         "final_response": "",
         "handover_packet": None,
-        "working_memory": [],
-        "conversation_summary": None,
-        "conversation_history": [],
-        "turn_number": 1,
+        "working_memory": working_memory or [],
         "events": [],
         "phase_status": {},
         "confidence_scores": {},  # Initialize confidence tracking

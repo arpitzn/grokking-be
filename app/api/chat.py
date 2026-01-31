@@ -12,6 +12,8 @@ from app.infra.langfuse_callback import langfuse_handler, langfuse
 from app.models.schemas import CaseRequest
 from app.services.conversation import create_conversation, insert_message
 from app.services.event_streamer import EventStreamer
+from app.services.memory import build_working_memory
+from app.services.summarization import trigger_summarization_if_needed
 from app.utils.logging_utils import (
     log_business_milestone,
     log_error_with_context,
@@ -124,6 +126,15 @@ async def chat_stream(request: CaseRequest):
             details={"conversation_id": conversation_id},
         )
 
+    # Build working memory (summary + recent messages)
+    # Note: Mem0 context is handled separately by memory retrieval agent
+    working_memory = await build_working_memory(
+        conversation_id=conversation_id,
+        user_id=request.user_id,
+        current_query=None,  # Not needed since we're not querying Mem0 here
+        include_mem0=False  # Mem0 handled by memory retrieval agent
+    )
+
     # Insert user message
     user_message_id = await insert_message(
         conversation_id=conversation_id, role="user", content=request.message
@@ -135,8 +146,8 @@ async def chat_stream(request: CaseRequest):
         streamer = EventStreamer(debug_mode=request.debug_mode or False)
         
         try:
-            # Initialize state with new AgentState structure
-            initial_state = create_initial_state(request, conversation_id)
+            # Initialize state with working memory
+            initial_state = create_initial_state(request, conversation_id, working_memory)
 
             # Build LangGraph config with callbacks and metadata
             langfuse_config = {
@@ -194,6 +205,9 @@ async def chat_stream(request: CaseRequest):
                     role="assistant",
                     content=streamer.full_response,
                 )
+                
+                # Trigger async summarization if needed (every 10 messages)
+                asyncio.create_task(trigger_summarization_if_needed(conversation_id))
 
             # Send completion event
             log_business_milestone(

@@ -20,7 +20,7 @@ from app.infra.prompts import get_prompts
 
 class IntentOutput(BaseModel):
     """Structured output for intent classification agent"""
-    issue_type: Literal["refund", "delivery_delay", "quality", "safety", "account", "other"] = Field(
+    issue_type: Literal["refund", "delivery_delay", "quality", "safety", "account", "greeting", "other"] = Field(
         ...,
         description="Primary issue category"
     )

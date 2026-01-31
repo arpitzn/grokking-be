@@ -47,7 +47,7 @@ async def memory_write_node(state: AgentState) -> AgentState:
     intent = state.get("intent", {})
     evidence = state.get("evidence", {})
     analysis = state.get("analysis", {})
-    conversation_history = state.get("conversation_history", [])
+    working_memory = state.get("working_memory", [])
     guardrails = state.get("guardrails", {})
     final_response = state.get("final_response", "")
     handover_packet = state.get("handover_packet")
@@ -66,7 +66,7 @@ async def memory_write_node(state: AgentState) -> AgentState:
             outcome=outcome,
             evidence=evidence,
             analysis=analysis,
-            conversation_history=conversation_history
+            conversation_history=working_memory  # Keep param name for memory_builder compatibility
         )
         
         for memory_content in episodic_memories:

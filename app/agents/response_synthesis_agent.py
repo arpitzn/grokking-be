@@ -25,6 +25,19 @@ async def response_synthesis_node(state: AgentState) -> AgentState:
     intent = state.get("intent", {})
     case = state.get("case", {})
     
+    # Handle greetings with simple response
+    issue_type = intent.get("issue_type")
+    if issue_type == "greeting":
+        greeting_response = (
+            "Hello! I'm your food delivery support assistant. "
+            "How can I help you today?"
+        )
+        emit_phase_event(state, "generating", "Generated greeting response")
+        return {
+            "final_response": greeting_response,
+            "messages": []
+        }
+    
     # Get top hypothesis and action
     hypotheses = analysis.get("hypotheses", [])
     action_candidates = analysis.get("action_candidates", [])
@@ -32,13 +45,13 @@ async def response_synthesis_node(state: AgentState) -> AgentState:
     top_hypothesis = hypotheses[0] if hypotheses else {"hypothesis": "Unable to determine", "confidence": 0.0}
     top_action = action_candidates[0] if action_candidates else {"action": "investigate", "rationale": "Need more information"}
     
-    # Build execution messages from conversation history + current turn
+    # Build execution messages from working memory + current turn
     messages = []
     
-    # Add conversation history for multi-turn context
-    conversation_history = state.get("conversation_history", [])
-    for turn in conversation_history:
-        messages.append({"role": turn["role"], "content": turn["content"]})
+    # Add working memory for multi-turn context
+    working_memory = state.get("working_memory", [])
+    for msg in working_memory:
+        messages.append({"role": msg["role"], "content": msg["content"]})
     
     # Get prompts from centralized prompts module for current turn
     system_prompt, user_prompt = get_prompts(

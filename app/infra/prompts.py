@@ -113,17 +113,20 @@ Query: "{normalized_text}"
 Order ID: {order_id}
 
 Classify the query:
-1. issue_type: Choose ONE from ["refund", "delivery_delay", "quality", "safety", "account", "other"]
+1. issue_type: Choose ONE from ["refund", "delivery_delay", "quality", "safety", "account", "greeting", "other"]
 2. severity: Choose ONE from ["low", "medium", "high"]
    - high: Urgent issues, safety concerns, angry customers, SLA violations
    - medium: Standard complaints, delays, quality issues
-   - low: Simple questions, account updates, general inquiries
+   - low: Simple questions, account updates, general inquiries, greetings
 3. SLA_risk: true if this might violate service level agreements (e.g., long delays, repeated issues)
 4. safety_flags: List any safety concerns (e.g., ["food_safety"], ["driver_behavior"], or empty list)
 5. reasoning: Brief explanation of your classification
 6. confidence: Your confidence in this classification (0.0 to 1.0)
 
 Examples:
+- "Hi" → issue_type: "greeting", severity: "low", SLA_risk: false
+- "Hello" → issue_type: "greeting", severity: "low", SLA_risk: false
+- "Hey there" → issue_type: "greeting", severity: "low", SLA_risk: false
 - "My order is 2 hours late and I want a refund" → issue_type: "refund", severity: "high", SLA_risk: true
 - "Food was cold" → issue_type: "quality", severity: "medium", SLA_risk: false
 - "How do I update my address?" → issue_type: "account", severity: "low", SLA_risk: false

@@ -104,13 +104,13 @@ async def reasoning_node(state: AgentState) -> AgentState:
     # Count evidence items
     total_evidence = len(mongo_evidence) + len(policy_evidence) + len(memory_evidence)
     
-    # Build execution messages from conversation history + current turn
+    # Build execution messages from working memory + current turn
     messages = []
     
-    # Add conversation history for multi-turn context
-    conversation_history = state.get("conversation_history", [])
-    for turn in conversation_history:
-        messages.append({"role": turn["role"], "content": turn["content"]})
+    # Add working memory for multi-turn context
+    working_memory = state.get("working_memory", [])
+    for msg in working_memory:
+        messages.append({"role": msg["role"], "content": msg["content"]})
     
     # Get prompts from centralized prompts module for current turn
     system_prompt, user_prompt = get_prompts(
