@@ -16,8 +16,8 @@ from app.utils.logging_utils import (
     log_request_end,
     log_request_start,
 )
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
-from typing import List
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query
+from typing import List, Optional
 from pydantic import ValidationError
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,9 @@ async def upload_multiple_files(
     files: List[UploadFile] = File(...),
     user_id: str = Form(...),
     category: str = Form(...),
-    persona: str = Form(...),  # JSON array string (shared for all files)
+    persona: str = Form(...),  # Uploader persona (area_manager, customer_care_rep, end_customer)
+    subcategory: Optional[str] = Form(None),  # Subcategory for end_customer
+    persona_filter: str = Form(...),  # Document persona filter (JSON array string)
     issue_type: str = Form(...),  # JSON array string (shared for all files)
     priority: str = Form(...),
     doc_weight: float = Form(...),
@@ -41,6 +43,9 @@ async def upload_multiple_files(
 
     Processes each file independently with shared filters, continues on errors,
     returns per-file results
+    
+    Access control:
+    - End Customer cannot upload documents (403 error)
     """
     start_time = time.time()
 
@@ -52,9 +57,13 @@ async def upload_multiple_files(
         body={"file_count": len(files)},
     )
 
+    # Access control: End Customer cannot upload
+    if persona == 'end_customer':
+        raise HTTPException(status_code=403, detail="End Customer cannot upload documents")
+
     # Parse and validate filters once (shared for all files)
     try:
-        persona_list = json.loads(persona)
+        persona_list = json.loads(persona_filter)
         issue_type_list = json.loads(issue_type)
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=400, detail=f"Invalid JSON in filter arrays: {e}")
@@ -92,7 +101,9 @@ async def upload_multiple_files(
                 filename=file.filename or "unknown",
                 mime_type=mime_type,
                 filters=filters,  # Shared filters for all files
+                uploader_persona=persona,  # Uploader persona
                 es_client=es_client,
+                uploader_subcategory=subcategory,  # Uploader subcategory (if applicable)
             )
             
             results.append(KnowledgeUploadResponse(
@@ -144,17 +155,40 @@ async def upload_multiple_files(
 
 
 @router.get("/{user_id}", response_model=List[DocumentListItem])
-async def list_knowledge(user_id: str, es_client: ElasticsearchDep):
+async def list_knowledge(
+    user_id: str,
+    es_client: ElasticsearchDep,
+    persona: str = Query(...),
+    subcategory: Optional[str] = Query(None),
+):
     """
     List all uploaded documents for a user with filters
 
     Aggregates chunks by file and returns one entry per file
+    Access control based on persona:
+    - area_manager: sees all documents (regardless of persona filter)
+    - customer_care_rep: sees only documents where persona array contains "customer_care_rep"
+    - end_customer: no access (403 error)
     """
     start_time = time.time()
     log_request_start(logger, "GET", f"/knowledge/{user_id}", user_id=user_id)
 
+    # Validate persona
+    if persona not in ['area_manager', 'customer_care_rep', 'end_customer']:
+        raise HTTPException(status_code=403, detail=f"Invalid persona: {persona}")
+
+    # End Customer: No access
+    if persona == 'end_customer':
+        raise HTTPException(status_code=403, detail="End Customer cannot access documents")
+
     try:
-        documents = await es_client.list_documents_by_user(user_id)
+        # Fetch documents based on persona
+        if persona == 'area_manager':
+            # Fetch all documents (no persona filter)
+            documents = await es_client.list_all_documents()
+        elif persona == 'customer_care_rep':
+            # Fetch only documents where persona array contains "customer_care_rep"
+            documents = await es_client.list_documents_by_persona("customer_care_rep")
 
         log_request_end(
             logger,
@@ -163,13 +197,15 @@ async def list_knowledge(user_id: str, es_client: ElasticsearchDep):
             status_code=200,
             duration_ms=(time.time() - start_time) * 1000,
             user_id=user_id,
-            details={"document_count": len(documents)}
+            details={"document_count": len(documents), "persona": persona}
         )
 
         return documents
+    except HTTPException:
+        raise
     except Exception as e:
         log_error_with_context(
-            logger, e, "list_documents_error", context={"user_id": user_id}
+            logger, e, "list_documents_error", context={"user_id": user_id, "persona": persona}
         )
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -178,12 +214,16 @@ async def list_knowledge(user_id: str, es_client: ElasticsearchDep):
 async def delete_file(
     user_id: str,
     file_id: str,
-    es_client: ElasticsearchDep
+    es_client: ElasticsearchDep,
+    persona: str = Query(...),
 ):
     """
     Delete a single file and all its chunks from Elasticsearch
     
     Reconstructs full file_id as {user_id}_{file_id} to match stored format
+    Access control based on persona:
+    - area_manager: can delete any document
+    - customer_care_rep: can only delete documents where persona array contains "customer_care_rep"
     """
     start_time = time.time()
     # Reconstruct full file_id: user_id_filename_timestamp
@@ -191,7 +231,32 @@ async def delete_file(
     
     log_request_start(logger, "DELETE", f"/knowledge/{user_id}/file/{file_id}", user_id=user_id)
 
+    # Validate persona
+    if persona not in ['area_manager', 'customer_care_rep', 'end_customer']:
+        raise HTTPException(status_code=403, detail=f"Invalid persona: {persona}")
+
+    # End Customer: No access
+    if persona == 'end_customer':
+        raise HTTPException(status_code=403, detail="End Customer cannot delete documents")
+
     try:
+        # For customer_care_rep, check if document's persona array contains "customer_care_rep"
+        if persona == 'customer_care_rep':
+            doc = await es_client.get_document_by_file_id(full_file_id)
+            if not doc:
+                raise HTTPException(status_code=404, detail=f"File not found: {file_id}")
+            
+            doc_personas = doc.get("persona", [])
+            # Normalize personas to lowercase for comparison
+            doc_personas_lower = [p.lower() if isinstance(p, str) else p for p in doc_personas]
+            
+            if "customer_care_rep" not in doc_personas_lower:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Access denied: Document persona filter does not include 'customer_care_rep'"
+                )
+        
+        # Proceed with deletion
         result = await es_client.delete_file_by_id(full_file_id)
 
         log_request_end(
@@ -218,16 +283,36 @@ async def delete_file(
 
 @router.delete("/all", response_model=DeleteAllResponse)
 async def delete_all_files(
-    es_client: ElasticsearchDep
+    es_client: ElasticsearchDep,
+    persona: str = Query(...),
+    user_id: Optional[str] = Query(None),
 ):
     """
-    Delete all files and chunks from Elasticsearch (global delete)
+    Delete all files and chunks from Elasticsearch
+    
+    Access control based on persona:
+    - area_manager: deletes all documents (global delete)
+    - customer_care_rep: deletes only documents where persona array contains "customer_care_rep"
     """
     start_time = time.time()
     log_request_start(logger, "DELETE", "/knowledge/all")
 
+    # Validate persona
+    if persona not in ['area_manager', 'customer_care_rep', 'end_customer']:
+        raise HTTPException(status_code=403, detail=f"Invalid persona: {persona}")
+
+    # End Customer: No access
+    if persona == 'end_customer':
+        raise HTTPException(status_code=403, detail="End Customer cannot delete documents")
+
     try:
-        result = await es_client.delete_all_files()
+        # Delete based on persona
+        if persona == 'area_manager':
+            # Delete all documents (global delete)
+            result = await es_client.delete_all_files()
+        elif persona == 'customer_care_rep':
+            # Delete only documents where persona array contains "customer_care_rep"
+            result = await es_client.delete_files_by_persona("customer_care_rep")
 
         log_request_end(
             logger,
