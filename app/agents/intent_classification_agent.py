@@ -20,7 +20,7 @@ from app.infra.prompts import get_prompts
 
 class IntentOutput(BaseModel):
     """Structured output for intent classification agent"""
-    issue_type: Literal["refund", "delivery_delay", "quality", "safety", "account", "greeting", "other"] = Field(
+    issue_type: Literal["refund", "delivery_delay", "quality", "safety", "account", "greeting", "question", "acknowledgment", "clarification_request", "other"] = Field(
         ...,
         description="Primary issue category"
     )
@@ -55,13 +55,24 @@ async def intent_classification_node(state: AgentState) -> AgentState:
     raw_text = case.get("raw_text", "")
     normalized_text = case.get("normalized_text", raw_text)
     order_id = case.get("order_id")
+    working_memory = state.get("working_memory", [])
+    
+    # Add conversation context if multi-turn
+    history_context = ""
+    # Filter out system messages (summaries), keep user/assistant only
+    conversation_messages = [m for m in working_memory if m.get("role") != "system"]
+    if len(conversation_messages) > 0:
+        history_context = f"\n\nConversation history (last {len(conversation_messages)} messages):\n"
+        for msg in conversation_messages[-3:]:  # Last 3 for context
+            history_context += f"{msg['role']}: {msg['content'][:100]}...\n"
     
     # Get prompts from centralized prompts module
     system_prompt, user_prompt = get_prompts(
         "intent_classification_agent",
         {
             "normalized_text": normalized_text,
-            "order_id": order_id or "Not mentioned"
+            "order_id": order_id or "Not mentioned",
+            "history_context": history_context
         }
     )
     

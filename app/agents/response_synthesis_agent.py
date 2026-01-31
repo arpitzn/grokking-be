@@ -1,21 +1,23 @@
 """
 Agent Responsibility:
-- Generates final response for auto-routed cases
+- Generates final response for auto-routed cases using LLM reasoning
 - Synthesizes evidence naturally
 - Includes citations and explanations
+- Handles all response types agentically (greetings, clarifications, issue responses)
 - Does NOT handle human escalation
 """
 
 from typing import Dict, Any
 
 from app.agent.state import AgentState, emit_phase_event
-from app.infra.llm import get_llm_service, get_expensive_model
+from app.infra.llm import get_llm_service, get_expensive_model, get_cheap_model
 from app.infra.prompts import get_prompts
 
 
 async def response_synthesis_node(state: AgentState) -> AgentState:
     """
-    Response synthesis node: Generates final response for auto-routed cases.
+    Response synthesis node: Generates final response for auto-routed cases using LLM.
+    Uses agentic reasoning for ALL response types including greetings and clarifications.
     
     Input: analysis, evidence, intent, case
     Output: final_response
@@ -25,18 +27,9 @@ async def response_synthesis_node(state: AgentState) -> AgentState:
     intent = state.get("intent", {})
     case = state.get("case", {})
     
-    # Handle greetings with simple response
     issue_type = intent.get("issue_type")
-    if issue_type == "greeting":
-        greeting_response = (
-            "Hello! I'm your food delivery support assistant. "
-            "How can I help you today?"
-        )
-        emit_phase_event(state, "generating", "Generated greeting response")
-        return {
-            "final_response": greeting_response,
-            "messages": []
-        }
+    needs_more_data = analysis.get("needs_more_data", False)
+    gaps = analysis.get("gaps", [])
     
     # Get top hypothesis and action
     hypotheses = analysis.get("hypotheses", [])
@@ -58,7 +51,9 @@ async def response_synthesis_node(state: AgentState) -> AgentState:
         "response_synthesis_agent",
         {
             "raw_text": case.get('raw_text', ''),
-            "issue_type": intent.get('issue_type', 'unknown'),
+            "issue_type": issue_type or 'unknown',
+            "needs_more_data": str(needs_more_data),
+            "gaps": str(gaps) if gaps else "None",
             "top_hypothesis": top_hypothesis.get('hypothesis', ''),
             "hypothesis_confidence": f"{top_hypothesis.get('confidence', 0.0):.2f}",
             "top_action": top_action.get('action', ''),
@@ -70,11 +65,20 @@ async def response_synthesis_node(state: AgentState) -> AgentState:
     messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": user_prompt})
     
-    # Use expensive model for response synthesis
+    # Model selection: Use cheap model for simple conversational queries, expensive for complex issues
+    severity = intent.get("severity", "low")
+    if severity == "low" and issue_type in ["greeting", "acknowledgment", "question", "clarification_request"]:
+        model_name = get_cheap_model()
+        temperature = 0.7  # Friendly and natural for conversational responses
+    else:
+        model_name = get_expensive_model()
+        temperature = 0.3  # More careful for complex issues
+    
+    # Use LLM for ALL response synthesis (agentic behavior)
     llm_service = get_llm_service()
     llm = llm_service.get_llm_instance(
-        model_name=get_expensive_model(),
-        temperature=0.3
+        model_name=model_name,
+        temperature=temperature
     )
     lc_messages = llm_service.convert_messages(messages)
     response = await llm.ainvoke(lc_messages)

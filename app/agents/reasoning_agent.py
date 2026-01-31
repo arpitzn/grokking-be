@@ -13,7 +13,7 @@ from typing import Dict, Any, List, Literal
 from pydantic import BaseModel, Field
 
 from app.agent.state import AgentState, emit_phase_event
-from app.infra.llm import get_llm_service, get_expensive_model
+from app.infra.llm import get_llm_service, get_expensive_model, get_cheap_model
 from app.infra.prompts import get_prompts
 
 
@@ -88,7 +88,7 @@ async def reasoning_node(state: AgentState) -> AgentState:
     intent = state.get("intent", {})
     case = state.get("case", {})
     
-    # Collect all evidence
+    # Collect all evidence (even if empty for simple queries)
     mongo_evidence = evidence.get("mongo", [])
     policy_evidence = evidence.get("policy", [])
     memory_evidence = evidence.get("memory", [])
@@ -126,12 +126,23 @@ async def reasoning_node(state: AgentState) -> AgentState:
     messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": user_prompt})
     
-    # Use expensive model for reasoning with structured output
+    # Model selection: Use cheap model for simple conversational queries, expensive for complex issues
+    severity = intent.get('severity', 'low')
+    issue_type = intent.get('issue_type', 'unknown')
+    
+    if severity == "low" and issue_type in ["greeting", "question", "acknowledgment", "clarification_request"]:
+        model_name = get_cheap_model()
+        temperature = 0.1  # More deterministic for simple cases
+    else:
+        model_name = get_expensive_model()
+        temperature = 0.3  # More creative for complex cases
+    
+    # Use LLM reasoning for ALL cases (agentic behavior)
     llm_service = get_llm_service()
     llm = llm_service.get_structured_output_llm_instance(
-        model_name=get_expensive_model(),
+        model_name=model_name,
         schema=ReasoningOutput,
-        temperature=0.3  # Moderate temperature for creative reasoning
+        temperature=temperature
     )
     
     lc_messages = llm_service.convert_messages(messages)
