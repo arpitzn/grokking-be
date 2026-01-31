@@ -141,9 +141,11 @@ async def memory_write_node(state: AgentState) -> AgentState:
     
     # Execute all memory writes in parallel (fire-and-forget)
     if memory_tasks:
-        asyncio.create_task(
-            asyncio.gather(*memory_tasks, return_exceptions=True)
-        )
+        # Wrap gather in a coroutine function since create_task expects a coroutine
+        async def _run_memory_tasks():
+            await asyncio.gather(*memory_tasks, return_exceptions=True)
+        
+        asyncio.create_task(_run_memory_tasks())
         logger.info(f"Fired {len(memory_tasks)} memory write tasks in parallel")
     
     # 2. Trigger summarization if needed (every 10 messages)
