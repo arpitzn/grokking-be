@@ -15,6 +15,7 @@ class EventType(str, Enum):
     """SSE event types"""
     THINKING = "thinking"
     EVIDENCE_CARD = "evidence_card"
+    EVIDENCE_GAP = "evidence_gap"
     HYPOTHESIS_UPDATE = "hypothesis_update"
     REFUND_RECOMMENDATION = "refund_recommendation"
     INCIDENT_BANNER = "incident_banner"
@@ -75,10 +76,9 @@ class EventStreamer:
     
     def _sanitize_content(self, content: str) -> str:
         """Remove unresolved template variables and sensitive patterns"""
-        # Remove {{variable}} patterns
-        sanitized = re.sub(r'\{\{[^}]+\}\}', '[redacted]', content)
-        # Remove {variable} patterns
-        sanitized = re.sub(r'\{[a-zA-Z_][a-zA-Z0-9_]*\}', '[redacted]', sanitized)
+        # Only redact actual sensitive patterns, not template variables
+        sanitized = re.sub(r'(password|secret|token|api_key|credential)\s*[:=]\s*\S+', 
+                          '[redacted]', content, flags=re.IGNORECASE)
         return sanitized
     
     def _format_sse(self, data: Dict[str, Any], event_class: str) -> str:
@@ -165,6 +165,9 @@ class EventStreamer:
         confidence = metadata.get("confidence", 0.0)
         order_id = metadata.get("order_id")
         
+        # Add confidence emoji
+        emoji = "✓" if confidence > 0.7 else "~" if confidence > 0.5 else "⚠️"
+        
         parts = []
         if entities:
             parts.append(f"entities: {', '.join(entities)}")
@@ -174,13 +177,15 @@ class EventStreamer:
             parts.append(f"order: {order_id}")
         
         if parts:
-            return f"Extracted {', '.join(parts)}"
+            return f"{emoji} Extracted {', '.join(parts)}"
         else:
-            return content[:50] + "..." if len(content) > 50 else content
+            return f"{emoji} {content[:50]}..." if len(content) > 50 else f"{emoji} {content}"
     
     def _format_intent_summary(self, metadata: Dict, content: str) -> str:
         """Format intent classification summary with confidence"""
         confidence = metadata.get("confidence", 0.0)
+        emoji = "✓" if confidence > 0.8 else "~" if confidence > 0.6 else "⚠️"
+        
         sla_risk = metadata.get("SLA_risk", False)
         safety_flags = metadata.get("safety_flags", [])
         
@@ -188,11 +193,11 @@ class EventStreamer:
         if confidence > 0:
             parts.append(f"confidence: {confidence:.2f}")
         if sla_risk:
-            parts.append("SLA risk")
+            parts.append("🚨 SLA risk")
         if safety_flags:
-            parts.append(f"safety: {len(safety_flags)} flags")
+            parts.append(f"⚠️ {len(safety_flags)} safety flags")
         
-        return " | ".join(parts)
+        return f"{emoji} {' | '.join(parts)}"
     
     def _format_guardrails_summary(self, metadata: Dict, content: str) -> str:
         """Format guardrails summary with routing decision and confidence"""
@@ -200,13 +205,17 @@ class EventStreamer:
         needs_more_data = metadata.get("needs_more_data", False)
         threshold = metadata.get("confidence_threshold", 0.7)
         
+        # Decision emoji
+        passed = confidence >= threshold
+        emoji = "✓" if passed else "⚠️"
+        
         parts = [content]
         if confidence > 0:
             parts.append(f"confidence: {confidence:.2f} (threshold: {threshold})")
         if needs_more_data:
-            parts.append("needs more data")
+            parts.append("🔍 needs more data")
         
-        return " | ".join(parts)
+        return f"{emoji} {' | '.join(parts)}"
     
     def _format_search_summary(self, metadata: Dict) -> str:
         """Format search phase summary with evidence counts"""
@@ -228,6 +237,9 @@ class EventStreamer:
         conflicts = metadata.get("conflicts", 0)
         overall_confidence = metadata.get("overall_confidence", confidence)
         
+        # Add confidence emoji
+        conf_emoji = "✓" if overall_confidence > 0.75 else "~" if overall_confidence > 0.6 else "⚠️"
+        
         parts = []
         if hypothesis_count > 0:
             parts.append(f"{hypothesis_count} hypotheses")
@@ -235,19 +247,19 @@ class EventStreamer:
         parts.append(f"confidence: {overall_confidence:.2f}")
         
         if evidence_quality != "unknown":
-            quality_emoji = {"high": "✓", "medium": "~", "low": "⚠"}.get(evidence_quality, "")
+            quality_emoji = {"high": "✓", "medium": "~", "low": "⚠️"}.get(evidence_quality, "")
             parts.append(f"evidence: {quality_emoji} {evidence_quality}")
         
         if needs_more_data:
-            parts.append("needs more data")
+            parts.append("🔍 needs more data")
         
         if conflicts > 0:
             parts.append(f"{conflicts} conflicts")
         
         if parts:
-            return f"Generated {', '.join(parts)}"
+            return f"{conf_emoji} Generated {', '.join(parts)}"
         else:
-            return "Analyzing evidence and generating response strategy"
+            return f"{conf_emoji} Analyzing evidence and generating response strategy"
     
     async def stream_evidence(self, node_output: Dict[str, Any]) -> AsyncGenerator[str, None]:
         """Stream new evidence cards"""
@@ -278,6 +290,51 @@ class EventStreamer:
                     if result:  # Only yield if not filtered
                         yield result
                 self.seen_evidence[source] = len(source_list)
+    
+    async def stream_evidence_gaps(self, node_output: Dict[str, Any]) -> AsyncGenerator[str, None]:
+        """Stream evidence gap alerts from reasoning or planner nodes"""
+        
+        # Check analysis for gaps
+        if "analysis" in node_output:
+            analysis = node_output["analysis"]
+            gaps = analysis.get("gaps", [])
+            
+            if gaps and not hasattr(self, '_gaps_emitted'):
+                self._gaps_emitted = True  # Emit once per stream
+                
+                gap_list = ", ".join(gaps) if isinstance(gaps, list) else str(gaps)
+                
+                result = self._format_sse({
+                    "event": EventType.EVIDENCE_GAP,
+                    "missing": gaps if isinstance(gaps, list) else [gaps],
+                    "message": f"⚠️ Missing data: {gap_list}",
+                    "impact": "May affect decision confidence"
+                }, EventClass.EXPLAINABILITY.value)
+                
+                if result:
+                    yield result
+        
+        # Check evidence items for gaps
+        if "evidence" in node_output:
+            evidence = node_output["evidence"]
+            for source in ["mongo", "policy", "memory"]:
+                if source in evidence:
+                    items = evidence[source]
+                    for item in items:
+                        if "gaps" in item and item["gaps"]:
+                            gap_key = f'_gap_{source}_emitted'
+                            if not hasattr(self, gap_key):
+                                setattr(self, gap_key, True)
+                                
+                                result = self._format_sse({
+                                    "event": EventType.EVIDENCE_GAP,
+                                    "source": source,
+                                    "missing": item["gaps"],
+                                    "message": f"⚠️ {source.upper()}: Missing {', '.join(item['gaps'])}"
+                                }, EventClass.EXPLAINABILITY.value)
+                                
+                                if result:
+                                    yield result
     
     async def stream_hypotheses(self, node_output: Dict[str, Any]) -> AsyncGenerator[str, None]:
         """Stream hypothesis updates from reasoning node"""
@@ -387,6 +444,10 @@ class EventStreamer:
         
         # Stream evidence cards (EXPLAINABILITY class)
         async for event in self.stream_evidence(node_output):
+            yield event
+        
+        # Stream evidence gaps (NEW)
+        async for event in self.stream_evidence_gaps(node_output):
             yield event
         
         # Stream incident banners (EXPLAINABILITY class)
