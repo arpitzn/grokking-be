@@ -17,7 +17,7 @@ from app.infra.mongo import get_mongodb_client
 from app.infra.elasticsearch import get_elasticsearch_client
 from app.infra.mem0 import get_mem0_client
 from app.infra.langfuse import get_langfuse_client
-from app.infra.llm import get_llm_client
+from app.infra.llm import get_llm_service
 from datetime import datetime, timezone
 import logging
 import asyncio
@@ -181,13 +181,15 @@ async def health_check():
     # Using max_tokens=1 to minimize cost - this is just a health check after all!
     async def check_openai():
         try:
-            llm_client = get_llm_client()
+            llm_service = get_llm_service()
+            # Get a minimal LLM instance for health check
+            llm = llm_service.get_llm_instance(
+                model_name="gpt-4.1-mini",
+                max_completion_tokens=1  # Super cheap - just 1 token!
+            )
             # Minimal API call: just enough to validate credentials work
             await with_timeout(
-                llm_client.client.ainvoke(
-                    [HumanMessage(content="test")],
-                    config={"max_tokens": 1}  # Super cheap - just 1 token!
-                ),
+                llm.ainvoke([HumanMessage(content="test")]),
                 OPENAI_TIMEOUT,
                 "OpenAI"
             )
