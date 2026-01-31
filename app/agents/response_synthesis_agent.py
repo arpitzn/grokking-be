@@ -32,7 +32,15 @@ async def response_synthesis_node(state: AgentState) -> AgentState:
     top_hypothesis = hypotheses[0] if hypotheses else {"hypothesis": "Unable to determine", "confidence": 0.0}
     top_action = action_candidates[0] if action_candidates else {"action": "investigate", "rationale": "Need more information"}
     
-    # Get prompts from centralized prompts module
+    # Build execution messages from conversation history + current turn
+    messages = []
+    
+    # Add conversation history for multi-turn context
+    conversation_history = state.get("conversation_history", [])
+    for turn in conversation_history:
+        messages.append({"role": turn["role"], "content": turn["content"]})
+    
+    # Get prompts from centralized prompts module for current turn
     system_prompt, user_prompt = get_prompts(
         "response_synthesis_agent",
         {
@@ -45,10 +53,9 @@ async def response_synthesis_node(state: AgentState) -> AgentState:
         }
     )
     
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt}
-    ]
+    # Add current turn prompts
+    messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": user_prompt})
     
     # Use expensive model for response synthesis
     llm_service = get_llm_service()
@@ -62,10 +69,12 @@ async def response_synthesis_node(state: AgentState) -> AgentState:
     # Extract response content
     final_response = response.content if hasattr(response, 'content') else str(response)
     
-    # Populate final_response
-    state["final_response"] = final_response
-    
     # Emit phase event
     emit_phase_event(state, "generating", "Composing final response")
     
-    return state
+    # WRITE to state.messages for observability and multi-turn continuity
+    # This is safe because synthesis runs sequentially (after reasoning)
+    return {
+        "final_response": final_response,
+        "messages": lc_messages  # Write to state.messages (single-writer)
+    }

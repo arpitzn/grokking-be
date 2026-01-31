@@ -6,7 +6,12 @@ from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from app.agent.state import AgentState, emit_phase_event
+from app.agent.state import (
+    PolicyRetrievalState,
+    PolicyRetrievalInputState,
+    PolicyRetrievalOutputState,
+    emit_phase_event
+)
 from app.infra.llm import get_cheap_model, get_llm_service
 from app.infra.prompts import get_prompts
 from app.tools.registry import POLICY_TOOLS
@@ -24,7 +29,7 @@ def create_policy_rag_subgraph():
         temperature=0
     )
     
-    def agent_node(state: AgentState) -> AgentState:
+    def agent_node(state: PolicyRetrievalState) -> PolicyRetrievalState:
         """Agent decides which policy tools to call"""
         intent = state.get("intent", {})
         
@@ -69,7 +74,7 @@ def create_policy_rag_subgraph():
         
         return state
     
-    def extract_evidence(state: AgentState) -> AgentState:
+    def extract_evidence(state: PolicyRetrievalState) -> PolicyRetrievalState:
         """Extract evidence from tool messages"""
         messages = state.get("messages", [])
         results = []
@@ -98,8 +103,12 @@ def create_policy_rag_subgraph():
         
         return state
     
-    # Build graph
-    graph = StateGraph(AgentState)
+    # Build graph with input/output schemas for state isolation
+    graph = StateGraph(
+        PolicyRetrievalState,
+        input=PolicyRetrievalInputState,
+        output=PolicyRetrievalOutputState
+    )
     graph.add_node("agent", agent_node)
     graph.add_node("tools", ToolNode(POLICY_TOOLS))
     graph.add_node("extract", extract_evidence)
@@ -118,5 +127,5 @@ def create_policy_rag_subgraph():
     
     compiled_graph = graph.compile()
     
-    logger.info("Policy RAG retrieval subgraph created successfully")
+    logger.info("Policy RAG retrieval subgraph created with isolated state")
     return compiled_graph

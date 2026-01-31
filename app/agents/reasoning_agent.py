@@ -104,7 +104,15 @@ async def reasoning_node(state: AgentState) -> AgentState:
     # Count evidence items
     total_evidence = len(mongo_evidence) + len(policy_evidence) + len(memory_evidence)
     
-    # Get prompts from centralized prompts module
+    # Build execution messages from conversation history + current turn
+    messages = []
+    
+    # Add conversation history for multi-turn context
+    conversation_history = state.get("conversation_history", [])
+    for turn in conversation_history:
+        messages.append({"role": turn["role"], "content": turn["content"]})
+    
+    # Get prompts from centralized prompts module for current turn
     system_prompt, user_prompt = get_prompts(
         "reasoning_agent",
         {
@@ -122,10 +130,9 @@ async def reasoning_node(state: AgentState) -> AgentState:
         }
     )
     
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt}
-    ]
+    # Add current turn prompts
+    messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": user_prompt})
     
     # Use expensive model for reasoning with structured output
     llm_service = get_llm_service()
@@ -182,4 +189,10 @@ async def reasoning_node(state: AgentState) -> AgentState:
         }
     )
     
-    return state
+    # WRITE to state.messages for observability and multi-turn continuity
+    # This is safe because reasoning runs sequentially (after parallel retrieval)
+    return {
+        "analysis": state["analysis"],
+        "confidence_scores": state["confidence_scores"],
+        "messages": lc_messages  # Write to state.messages (single-writer)
+    }

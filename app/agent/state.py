@@ -46,6 +46,63 @@ def take_right(left: Any, right: Any) -> Any:
     return right
 
 
+# Subgraph state schemas with input/output isolation
+# Each retrieval subgraph has private messages for tool-calling (not returned to parent)
+
+class MongoRetrievalInputState(TypedDict):
+    """Input schema for mongo retrieval subgraph"""
+    case: Dict[str, Any]  # Read-only: order_id, customer_id, etc.
+    intent: Dict[str, Any]  # Read-only: issue_type, severity, SLA_risk
+    evidence: Dict[str, List[Dict]]  # Shared evidence accumulator
+
+
+class MongoRetrievalOutputState(TypedDict):
+    """Output schema - only returns evidence"""
+    evidence: Dict[str, List[Dict]]  # Only writes to evidence.mongo
+
+
+class MongoRetrievalState(MongoRetrievalInputState, MongoRetrievalOutputState):
+    """Internal state with private messages for tool calling"""
+    messages: Annotated[List, add]  # Private to this subgraph (not in output schema)
+    events: Annotated[List[Dict[str, Any]], add]  # For phase events
+
+
+class PolicyRetrievalInputState(TypedDict):
+    """Input schema for policy retrieval subgraph"""
+    case: Dict[str, Any]  # Read-only: order_id, customer_id, etc.
+    intent: Dict[str, Any]  # Read-only: issue_type, severity, SLA_risk
+    evidence: Dict[str, List[Dict]]  # Shared evidence accumulator
+
+
+class PolicyRetrievalOutputState(TypedDict):
+    """Output schema - only returns evidence"""
+    evidence: Dict[str, List[Dict]]  # Only writes to evidence.policy
+
+
+class PolicyRetrievalState(PolicyRetrievalInputState, PolicyRetrievalOutputState):
+    """Internal state with private messages for tool calling"""
+    messages: Annotated[List, add]  # Private to this subgraph (not in output schema)
+    events: Annotated[List[Dict[str, Any]], add]  # For phase events
+
+
+class MemoryRetrievalInputState(TypedDict):
+    """Input schema for memory retrieval subgraph"""
+    case: Dict[str, Any]  # Read-only: order_id, customer_id, etc.
+    intent: Dict[str, Any]  # Read-only: issue_type, severity, SLA_risk
+    evidence: Dict[str, List[Dict]]  # Shared evidence accumulator
+
+
+class MemoryRetrievalOutputState(TypedDict):
+    """Output schema - only returns evidence"""
+    evidence: Dict[str, List[Dict]]  # Only writes to evidence.memory
+
+
+class MemoryRetrievalState(MemoryRetrievalInputState, MemoryRetrievalOutputState):
+    """Internal state with private messages for tool calling"""
+    messages: Annotated[List, add]  # Private to this subgraph (not in output schema)
+    events: Annotated[List[Dict[str, Any]], add]  # For phase events
+
+
 class AgentState(TypedDict):
     """
     Comprehensive state schema for food delivery agentic operations co-pilot.
@@ -93,8 +150,10 @@ class AgentState(TypedDict):
     events: Annotated[List[Dict[str, Any]], add]  # Unified event stream (replaces trace_events and cot_trace)
     phase_status: Annotated[Dict[str, str], take_right]  # Track phase completion for summary generation
     
-    # Internal subgraph state - used by parallel retrieval subgraphs for LLM iterations
-    messages: Annotated[List, add]  # LangChain messages for agentic tool calling
+    # Per-turn execution buffer - SINGLE WRITER (only reasoning/synthesis nodes write)
+    # Retrieval subgraphs have private messages (not in parent state)
+    # Multi-turn continuity preserved via conversation_history
+    messages: Annotated[List, take_right]  # LangChain messages for reasoning/synthesis (per-turn buffer)
 
 
 def emit_phase_event(

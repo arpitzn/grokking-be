@@ -2,7 +2,7 @@
 from app.infra.elasticsearch import ElasticsearchDep, ElasticsearchClient
 from app.infra.llm import get_llm_service
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 # from app.infra.llm import get_llm_client
 from app.services.processors.factory import get_processor

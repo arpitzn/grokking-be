@@ -6,7 +6,12 @@ from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from app.agent.state import AgentState, emit_phase_event
+from app.agent.state import (
+    MongoRetrievalState,
+    MongoRetrievalInputState,
+    MongoRetrievalOutputState,
+    emit_phase_event
+)
 from app.infra.llm import get_cheap_model, get_llm_service
 from app.infra.prompts import get_prompts
 from app.tools.registry import MONGO_TOOLS
@@ -24,7 +29,7 @@ def create_mongo_retrieval_subgraph():
         temperature=0
     )
     
-    def agent_node(state: AgentState) -> AgentState:
+    def agent_node(state: MongoRetrievalState) -> MongoRetrievalState:
         """Agent decides which MongoDB tools to call"""
         case = state.get("case", {})
         intent = state.get("intent", {})
@@ -74,7 +79,7 @@ def create_mongo_retrieval_subgraph():
         
         return state
     
-    def extract_evidence(state: AgentState) -> AgentState:
+    def extract_evidence(state: MongoRetrievalState) -> MongoRetrievalState:
         """Extract evidence from tool messages"""
         messages = state.get("messages", [])
         results = []
@@ -103,8 +108,12 @@ def create_mongo_retrieval_subgraph():
         
         return state
     
-    # Build graph
-    graph = StateGraph(AgentState)
+    # Build graph with input/output schemas for state isolation
+    graph = StateGraph(
+        MongoRetrievalState,
+        input=MongoRetrievalInputState,
+        output=MongoRetrievalOutputState
+    )
     graph.add_node("agent", agent_node)
     graph.add_node("tools", ToolNode(MONGO_TOOLS))
     graph.add_node("extract", extract_evidence)
@@ -123,5 +132,5 @@ def create_mongo_retrieval_subgraph():
     
     compiled_graph = graph.compile()
     
-    logger.info("MongoDB retrieval subgraph created successfully")
+    logger.info("MongoDB retrieval subgraph created with isolated state")
     return compiled_graph
