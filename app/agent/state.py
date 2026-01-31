@@ -109,7 +109,7 @@ class AgentState(TypedDict):
     
     State slices:
     - Input: case (persona, channel, order_id, customer_id, zone_id, raw_text, locale)
-    - Interpretation: intent (issue_type, severity, SLA_risk, safety_flags), plan (tool_selection, initial_route)
+    - Interpretation: intent (issue_type, severity, SLA_risk, safety_flags), plan (agents_to_activate, initial_route)
     - Evidence: evidence (mongo[], policy[], memory[])
     - Decision: analysis (hypotheses[], action_candidates[], confidence, gaps), guardrails (compliance, routing_decision FINAL)
     - Outputs: final_response, handover_packet
@@ -121,8 +121,8 @@ class AgentState(TypedDict):
     case: Annotated[Dict[str, Any], merge_dicts]  # persona, channel, order_id, customer_id, zone_id, raw_text, locale, conversation_id, user_id
     
     # Interpretation slice - PARALLEL UPDATES (subgraphs return full state)
-    intent: Annotated[Dict[str, Any], merge_dicts]  # issue_type, severity, SLA_risk, safety_flags, reasoning
-    plan: Annotated[Dict[str, Any], merge_dicts]  # retrieval_plan, tool_selection, initial_route (advisory)
+    intent: Annotated[Dict[str, Any], merge_dicts]  # issue_type, severity, SLA_risk, safety_flags
+    plan: Annotated[Dict[str, Any], merge_dicts]  # agents_to_activate, initial_route (advisory)
     
     # Evidence slice - PARALLEL UPDATES from 3 retrieval subgraphs
     evidence: Annotated[Dict[str, List[Dict]], merge_dicts]  # mongo[], policy[], memory[]

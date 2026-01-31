@@ -1,7 +1,6 @@
 """Centralized prompt management for all agents - code-only, O(1) lookup"""
 
 from typing import Dict, Tuple
-from string import Template
 
 # Prompt templates with placeholders for all agents
 AGENT_PROMPTS: Dict[str, Dict[str, str]] = {
@@ -92,7 +91,6 @@ Extract the following entities if present:
 - zone_id: Delivery zone identifier if mentioned
 - restaurant_id: Restaurant ID or name if mentioned
 - normalized_query: A cleaned version of the query (fix typos, expand abbreviations)
-- entities_found: List which entity types you successfully extracted
 - confidence: Your confidence in the extraction (0.0 to 1.0)
 
 If an entity is not mentioned in the query, set it to null.
@@ -120,8 +118,7 @@ Classify the query:
    - low: Simple questions, account updates, general inquiries, greetings
 3. SLA_risk: true if this might violate service level agreements (e.g., long delays, repeated issues)
 4. safety_flags: List any safety concerns (e.g., ["food_safety"], ["driver_behavior"], or empty list)
-5. reasoning: Brief explanation of your classification
-6. confidence: Your confidence in this classification (0.0 to 1.0)
+5. confidence: Your confidence in this classification (0.0 to 1.0)
 
 Examples:
 - "Hi" → issue_type: "greeting", severity: "low", SLA_risk: false
@@ -134,7 +131,7 @@ Examples:
     },
     
     "planner_agent": {
-        "system_prompt": "You are a planning agent. Analyze the query and decide which tools to use.",
+        "system_prompt": "You are a planning agent. Analyze the query and decide which retrieval agents to activate.",
         
         "user_prompt": """You are a planning agent for a food delivery support system.
 
@@ -154,28 +151,19 @@ Extracted entities:
 - Restaurant ID: {restaurant_id}
 {history_context}
 
-Available tools:
-1. get_order_timeline - Fetch order events, status, timestamps
-2. get_customer_ops_profile - Get customer history, refund count, VIP status
-3. get_zone_ops_metrics - Get zone-level delivery metrics
-4. get_incident_signals - Check for active incidents
-5. get_restaurant_ops - Get restaurant operational data
-6. get_case_context - Get case metadata
-7. search_policies - Search policy documents (refund, SLA, quality)
-8. lookup_policy - Get specific policy by ID
-9. read_episodic_memory - Search past conversations
-10. read_semantic_memory - Get user preferences and facts
-
 Based on the query, intent, and entities, decide:
-1. Which tools should be called to gather relevant information?
+1. Which retrieval agents should be activated?
+   - mongo_retrieval: For order, customer, zone, restaurant, incident data
+   - policy_rag: For policies, SOPs, SLAs
+   - memory_retrieval: For past conversations and user preferences
 2. Should this be handled automatically or escalated to human?
 
 Guidelines:
-- For refund requests: get order timeline, customer profile, refund policy
-- For delivery delays: get order timeline, zone metrics, delivery SLA policy
-- For quality issues: get order timeline, restaurant ops, quality policy
-- For safety concerns: get incident signals, safety policy, escalate to human
-- Always search episodic memory to check past similar cases
+- For refund requests: activate mongo_retrieval (order/customer data) and policy_rag (refund policy)
+- For delivery delays: activate mongo_retrieval (order/zone data) and policy_rag (SLA policy)
+- For quality issues: activate mongo_retrieval (order/restaurant data) and policy_rag (quality policy)
+- For safety concerns: activate mongo_retrieval (incident signals) and policy_rag (safety policy), recommend human escalation
+- Always activate memory_retrieval to check past similar cases
 - If high severity or SLA risk, recommend human escalation"""
     },
     
@@ -224,11 +212,6 @@ Analyze the evidence and provide:
    - needs_more_data: Do you need more information? (true/false)
      * true if: Low evidence quality, high gaps, conflicting data
      * false if: Sufficient evidence for confident decision
-   
-   - recommended_next_steps: What should happen next?
-     * Examples: ["escalate_to_human"], ["fetch_delivery_photos"], ["auto_respond"]
-   
-   - reasoning_trace: Explain your step-by-step reasoning process
 
 Guidelines:
 - Be honest about uncertainty - low confidence is better than false confidence
@@ -260,6 +243,12 @@ Be empathetic, clear, and professional. Keep it concise (2-3 paragraphs)."""
 }
 
 
+class SafeFormatter(dict):
+    """Custom formatter that returns placeholder unchanged if key is missing"""
+    def __missing__(self, key):
+        return f"{{{key}}}"
+
+
 def get_prompts(agent_name: str, variables: Dict[str, str]) -> Tuple[str, str]:
     """
     Get system and user prompts with variables substituted.
@@ -281,9 +270,10 @@ def get_prompts(agent_name: str, variables: Dict[str, str]) -> Tuple[str, str]:
     system_prompt = prompts["system_prompt"]
     user_prompt_template = prompts["user_prompt"]
     
-    # Substitute variables in user prompt
-    # Use safe_substitute to avoid KeyError for missing variables
-    user_prompt = Template(user_prompt_template).safe_substitute(variables)
+    # Substitute variables in user prompt using .format() syntax
+    # SafeFormatter returns placeholder unchanged if key is missing (like safe_substitute)
+    formatter = SafeFormatter(**variables)
+    user_prompt = user_prompt_template.format_map(formatter)
     
     return system_prompt, user_prompt
 
@@ -325,4 +315,5 @@ def get_user_prompt(agent_name: str, variables: Dict[str, str]) -> str:
         raise KeyError(f"Unknown agent: {agent_name}. Available: {list(AGENT_PROMPTS.keys())}")
     
     user_prompt_template = AGENT_PROMPTS[agent_name]["user_prompt"]
-    return Template(user_prompt_template).safe_substitute(variables)
+    formatter = SafeFormatter(**variables)
+    return user_prompt_template.format_map(formatter)

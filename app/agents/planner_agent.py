@@ -24,27 +24,17 @@ class PlanningOutput(BaseModel):
     agents_to_activate: List[Literal["mongo_retrieval", "policy_rag", "memory_retrieval"]] = Field(
         description="List of agent names to activate in parallel"
     )
-    tool_selection: List[str] = Field(
-        description="List of tool names for reference (e.g., ['get_order_timeline', 'search_policies'])"
-    )
-    retrieval_strategy: Literal["parallel", "sequential"] = Field(
-        default="parallel",
-        description="How to execute agents: parallel or sequential"
-    )
     initial_route: Literal["auto", "human"] = Field(
         description="Advisory routing decision: auto for auto-response, human for escalation"
-    )
-    reasoning: str = Field(
-        description="Brief explanation of agent and tool selection"
     )
 
 
 async def planner_node(state: AgentState) -> AgentState:
     """
-    Agentic planner: Uses LLM to decide which tools to call
+    Agentic planner: Uses LLM to decide which retrieval agents to activate
     
     Input: intent slice (from Intent Classification - MANDATORY), case slice, working_memory
-    Output: plan slice (tool_selection, retrieval_strategy, context, initial_route ADVISORY)
+    Output: plan slice (agents_to_activate, context, initial_route ADVISORY)
     """
     intent = state.get("intent", {})
     case = state.get("case", {})
@@ -55,8 +45,6 @@ async def planner_node(state: AgentState) -> AgentState:
     if issue_type == "greeting":
         state["plan"] = {
             "agents_to_activate": [],
-            "tool_selection": [],
-            "retrieval_strategy": "parallel",
             "context": {"issue_type": "greeting"},
             "initial_route": "auto"
         }
@@ -112,8 +100,6 @@ async def planner_node(state: AgentState) -> AgentState:
     # Populate state["plan"]
     state["plan"] = {
         "agents_to_activate": planning_output.agents_to_activate,
-        "tool_selection": planning_output.tool_selection,
-        "retrieval_strategy": planning_output.retrieval_strategy,
         "context": {
             "issue_type": intent.get("issue_type"),
             "severity": intent.get("severity"),
@@ -129,7 +115,6 @@ async def planner_node(state: AgentState) -> AgentState:
         f"Selected {len(planning_output.agents_to_activate)} retrieval agents",
         metadata={
             "agents": planning_output.agents_to_activate,
-            "tools": planning_output.tool_selection,
             "route": planning_output.initial_route,
             "evidence_count": 0  # Will be updated by retrieval
         }

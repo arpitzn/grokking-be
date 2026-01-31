@@ -36,10 +36,6 @@ class IntentOutput(BaseModel):
         default_factory=list,
         description="List of safety concerns (e.g., ['food_safety', 'driver_safety'])"
     )
-    reasoning: str = Field(
-        ...,
-        description="Brief explanation of classification decision"
-    )
     confidence: float = Field(
         ...,
         ge=0.0,
@@ -91,8 +87,7 @@ async def intent_classification_node(state: AgentState) -> AgentState:
         "severity": response.severity,
         "SLA_risk": response.SLA_risk,
         "safety_flags": response.safety_flags,
-        "reasoning": response.reasoning,
-        "confidence": response.confidence  # Add confidence
+        "confidence": response.confidence
     }
     
     # Update confidence tracking

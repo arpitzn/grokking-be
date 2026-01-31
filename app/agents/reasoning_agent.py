@@ -67,14 +67,6 @@ class ReasoningOutput(BaseModel):
         ...,
         description="True if more information is needed for confident decision"
     )
-    recommended_next_steps: List[str] = Field(
-        default_factory=list,
-        description="Suggested next steps (e.g., 'fetch_restaurant_logs', 'escalate_to_human')"
-    )
-    reasoning_trace: str = Field(
-        ...,
-        description="Step-by-step reasoning process"
-    )
 
 
 def _format_evidence(evidence_list: List[Dict[str, Any]]) -> str:
@@ -154,9 +146,7 @@ async def reasoning_node(state: AgentState) -> AgentState:
         # Self-reflection fields
         "evidence_quality": response.evidence_quality,
         "conflicting_evidence": response.conflicting_evidence,
-        "needs_more_data": response.needs_more_data,
-        "recommended_next_steps": response.recommended_next_steps,
-        "reasoning_trace": response.reasoning_trace
+        "needs_more_data": response.needs_more_data
     }
     
     # Update confidence tracking
