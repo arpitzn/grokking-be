@@ -6,7 +6,7 @@ Criticality: decision-critical
 Observability: Emits tool_call_started, tool_call_completed, tool_call_failed events
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Type
 
 from langchain_core.tools import BaseTool
@@ -55,7 +55,7 @@ async def lookup_policy(doc_id: str, section_id: Optional[str] = None) -> Policy
         result = PolicyEvidenceEnvelope(
             source="elasticsearch",
             entity_refs=[doc_id],
-            freshness=datetime.utcnow(),
+            freshness=datetime.now(timezone.utc),
             confidence=0.95,
             data=policy_data,
             gaps=[],
@@ -79,7 +79,7 @@ async def lookup_policy(doc_id: str, section_id: Optional[str] = None) -> Policy
         return PolicyEvidenceEnvelope(
             source="elasticsearch",
             entity_refs=[doc_id],
-            freshness=datetime.utcnow(),
+            freshness=datetime.now(timezone.utc),
             confidence=0.0,
             data={},
             gaps=["policy_lookup_failed"],
@@ -101,10 +101,10 @@ class LookupPolicyTool(BaseTool):
     description: str = "Looks up specific policy document by ID in Elasticsearch. Returns full policy content or specific section if section_id is provided."
     args_schema: Type[BaseModel] = LookupPolicyInput
     
-    async def _arun(self, doc_id: str, section_id: Optional[str] = None) -> dict:
-        """Async execution - returns dict representation of PolicyEvidenceEnvelope"""
+    async def _arun(self, doc_id: str, section_id: Optional[str] = None) -> str:
+        """Async execution - returns JSON string of PolicyEvidenceEnvelope"""
         result = await lookup_policy(doc_id, section_id)
-        return result.dict()
+        return result.model_dump_json()
     
     def _run(self, doc_id: str, section_id: Optional[str] = None) -> dict:
         """Sync execution - not supported for async tools"""

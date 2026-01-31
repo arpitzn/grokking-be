@@ -7,6 +7,7 @@ Agent Responsibility:
 - Does NOT reason or generate responses
 """
 
+from datetime import datetime, timezone
 from typing import Dict, Any
 
 from app.agent.state import AgentState
@@ -92,11 +93,10 @@ async def policy_rag_node(state: AgentState) -> AgentState:
         except Exception as e:
             failed_tools.append(tool_name)
             from app.models.evidence import ToolResult, ToolStatus
-            from datetime import datetime
             failed_envelope = {
                 "source": "elasticsearch",
                 "entity_refs": [],
-                "freshness": datetime.utcnow().isoformat(),
+                "freshness": datetime.now(timezone.utc).isoformat(),
                 "confidence": 0.0,
                 "data": {},
                 "gaps": [f"{tool_name}_exception"],

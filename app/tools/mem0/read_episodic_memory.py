@@ -6,7 +6,7 @@ Criticality: non-critical
 Observability: Emits tool_call_started, tool_call_completed, tool_call_failed events
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Type
 
 from langchain_core.tools import BaseTool
@@ -65,7 +65,7 @@ async def read_episodic_memory(user_id: str, query: str, top_k: int) -> MemoryEv
         result = MemoryEvidenceEnvelope(
             source="mem0",
             entity_refs=[user_id],
-            freshness=datetime.utcnow(),
+            freshness=datetime.now(timezone.utc),
             confidence=0.85,
             data=memory_data,
             gaps=[],
@@ -89,7 +89,7 @@ async def read_episodic_memory(user_id: str, query: str, top_k: int) -> MemoryEv
         return MemoryEvidenceEnvelope(
             source="mem0",
             entity_refs=[user_id],
-            freshness=datetime.utcnow(),
+            freshness=datetime.now(timezone.utc),
             confidence=0.0,
             data={},
             gaps=["episodic_memory_unavailable"],
@@ -112,10 +112,10 @@ class ReadEpisodicMemoryTool(BaseTool):
     description: str = "Reads episodic memories (past incidents/cases) from Mem0. Returns semantically similar past experiences for the customer."
     args_schema: Type[BaseModel] = ReadEpisodicMemoryInput
     
-    async def _arun(self, user_id: str, query: str, top_k: int) -> dict:
-        """Async execution - returns dict representation of MemoryEvidenceEnvelope"""
+    async def _arun(self, user_id: str, query: str, top_k: int) -> str:
+        """Async execution - returns JSON string of MemoryEvidenceEnvelope"""
         result = await read_episodic_memory(user_id, query, top_k)
-        return result.dict()
+        return result.model_dump_json()
     
     def _run(self, user_id: str, query: str, top_k: int) -> dict:
         """Sync execution - not supported for async tools"""

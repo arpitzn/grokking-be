@@ -8,6 +8,7 @@ Agent Responsibility:
 - Agents may escalate but never downgrade tool criticality
 """
 
+from datetime import datetime, timezone
 from typing import Dict, Any, List
 
 from app.agent.state import AgentState
@@ -122,11 +123,10 @@ async def mongo_retrieval_node(state: AgentState) -> AgentState:
                 failed_tools.append(tool_name)
                 # Add empty evidence envelope for failed tool
                 from app.models.evidence import ToolResult, ToolStatus
-                from datetime import datetime
                 failed_envelope = {
                     "source": "mongo",
                     "entity_refs": [],
-                    "freshness": datetime.utcnow().isoformat(),
+                    "freshness": datetime.now(timezone.utc).isoformat(),
                     "confidence": 0.0,
                     "data": {},
                     "gaps": [f"{tool_name}_exception"],

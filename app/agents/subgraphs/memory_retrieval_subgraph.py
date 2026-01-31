@@ -3,7 +3,8 @@
 import logging
 from typing import Literal
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+import json
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
 
@@ -61,15 +62,16 @@ Suggested tools (advisory): {plan.get('tool_selection', [])}
 Fetch episodic and semantic memories for this customer based on the case and intent.
 """
         
-        # Build messages for LLM
-        messages = [
-            SystemMessage(content=get_prompt("memory_retrieval_agent")),
-            HumanMessage(content=user_content)
-        ]
-        
-        # Add previous messages if any (for iteration context)
+        # Build messages for LLM - include conversation history for iterations
         if state["messages"]:
-            messages.extend(state["messages"][-4:])  # Last 2 exchanges
+            # Use existing message history (already contains System, Human, AI, Tool messages)
+            messages = state["messages"]
+        else:
+            # First iteration - initialize with system and user message
+            messages = [
+                SystemMessage(content=get_prompt("memory_retrieval_agent")),
+                HumanMessage(content=user_content)
+            ]
         
         # Call LLM with tools
         try:
@@ -85,7 +87,12 @@ Fetch episodic and semantic memories for this customer based on the case and int
             })
             
             # Store messages for next iteration
-            state["messages"].extend([messages[-1], response])
+            if not state["messages"]:
+                # First iteration - store initial messages + response
+                state["messages"] = messages + [response]
+            else:
+                # Subsequent iterations - only append new response
+                state["messages"].append(response)
             
         except Exception as e:
             logger.error(f"Error in memory retrieval agent node: {e}")
@@ -95,7 +102,10 @@ Fetch episodic and semantic memories for this customer based on the case and int
             })
             # Create empty response to continue
             response = AIMessage(content="Error occurred, stopping retrieval.")
-            state["messages"].extend([messages[-1], response])
+            if not state["messages"]:
+                state["messages"] = messages + [response]
+            else:
+                state["messages"].append(response)
         
         return state
     
@@ -121,7 +131,7 @@ Fetch episodic and semantic memories for this customer based on the case and int
         return "finalize"
     
     # Tools node: executes tools and aggregates results
-    def tools_node(state: AgentState) -> AgentState:
+    async def tools_node(state: AgentState) -> AgentState:
         """Execute tools and aggregate results into evidence"""
         messages = state.get("messages", [])
         if not messages:
@@ -129,23 +139,111 @@ Fetch episodic and semantic memories for this customer based on the case and int
         
         last_message = messages[-1]
         
+        # Verify last message has tool calls
+        if not hasattr(last_message, 'tool_calls') or not last_message.tool_calls:
+            return state
         # Execute tools using ToolNode
         tool_node = ToolNode(MEMORY_TOOLS)
-        tool_results = tool_node.invoke({"messages": [last_message]})
+        
+        try:
+            # Use ainvoke to ensure async tool execution (_arun instead of _run)
+            tool_results = await tool_node.ainvoke({"messages": [last_message]})
+            tool_messages = tool_results.get("messages", [])
+        except Exception as e:
+            logger.error(f"ToolNode execution failed: {e}")
+            # Create error ToolMessages for all tool calls
+            tool_messages = []
+            for tool_call in last_message.tool_calls:
+                error_content = json.dumps({
+                    "provenance": {
+                        "tool": tool_call.get("name", "unknown"),
+                        "timestamp": "error",
+                        "source": "memory"
+                    },
+                    "tool_result": {
+                        "status": "failed",
+                        "error": str(e),
+                        "data": None
+                    }
+                })
+                tool_messages.append(ToolMessage(
+                    content=error_content,
+                    tool_call_id=tool_call["id"]
+                ))
+        
+        # Verify all tool_calls have corresponding ToolMessages
+        tool_call_ids = {tc["id"] for tc in last_message.tool_calls}
+        response_ids = {tm.tool_call_id for tm in tool_messages if hasattr(tm, 'tool_call_id')}
+        missing_ids = tool_call_ids - response_ids
+        # Create placeholder ToolMessages for missing tool_call_ids
+        if missing_ids:
+            logger.warning(f"Missing ToolMessages for tool_call_ids: {missing_ids}")
+            for missing_id in missing_ids:
+                # Find the tool name from the original tool_call
+                tool_name = "unknown"
+                for tc in last_message.tool_calls:
+                    if tc["id"] == missing_id:
+                        tool_name = tc.get("name", "unknown")
+                        break
+                
+                error_content = json.dumps({
+                    "provenance": {
+                        "tool": tool_name,
+                        "timestamp": "error",
+                        "source": "memory"
+                    },
+                    "tool_result": {
+                        "status": "failed",
+                        "error": "Tool execution returned empty result",
+                        "data": None
+                    }
+                })
+                tool_messages.append(ToolMessage(
+                    content=error_content,
+                    tool_call_id=missing_id
+                ))
         
         # Extract tool results and add to evidence
-        tool_messages = tool_results.get("messages", [])
-        for tool_msg in tool_messages:
+        for idx, tool_msg in enumerate(tool_messages):
             if hasattr(tool_msg, 'content') and tool_msg.content:
                 # Tool result might be dict or JSON string
                 try:
-                    import json
                     # Handle both dict and string content
                     if isinstance(tool_msg.content, dict):
                         evidence_envelope = tool_msg.content
                     elif isinstance(tool_msg.content, str):
-                        # Try to parse as JSON
-                        evidence_envelope = json.loads(tool_msg.content)
+                        # Check if string is empty before parsing
+                        if not tool_msg.content.strip():
+                            logger.warning("Empty tool result content, skipping evidence extraction")
+                            continue
+                        
+                        # Check if content is a plain error string (from ToolNode error handling)
+                        if tool_msg.content.startswith("Error:"):
+                            # Extract tool name from tool_call_id if available
+                            tool_name = "unknown"
+                            if hasattr(tool_msg, 'tool_call_id') and tool_msg.tool_call_id:
+                                # Find tool name from original tool_call
+                                for tc in last_message.tool_calls:
+                                    if tc.get("id") == tool_msg.tool_call_id:
+                                        tool_name = tc.get("name", "unknown")
+                                        break
+                            
+                            # Wrap error string in expected evidence envelope format
+                            evidence_envelope = {
+                                "provenance": {
+                                    "tool": tool_name,
+                                    "timestamp": "error",
+                                    "source": "memory"
+                                },
+                                "tool_result": {
+                                    "status": "failed",
+                                    "error": tool_msg.content,
+                                    "data": None
+                                }
+                            }
+                        else:
+                            # Try to parse as JSON
+                            evidence_envelope = json.loads(tool_msg.content)
                     else:
                         continue
                     
@@ -163,12 +261,15 @@ Fetch episodic and semantic memories for this customer based on the case and int
                         "turn": turn_number,
                         "content": f"[Turn {turn_number}] Tool {tool_name} executed: {status}"
                     })
+                except json.JSONDecodeError as e:
+                    logger.error(f"Error processing tool result (JSON decode): {e}")
+                    continue
                 except Exception as e:
                     logger.error(f"Error processing tool result: {e}")
+                    continue
         
         # Add tool results to messages
         state["messages"].extend(tool_messages)
-        
         return state
     
     # Finalize node: update retrieval_status and clean up

@@ -6,7 +6,7 @@ Criticality: decision-critical
 Observability: Emits tool_call_started, tool_call_completed, tool_call_failed events
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Type
 
 from langchain_core.tools import BaseTool
@@ -60,7 +60,7 @@ async def get_order_timeline(order_id: str, include: List[str]) -> OrderEvidence
         result = OrderEvidenceEnvelope(
             source="mongo",
             entity_refs=[order_id],
-            freshness=datetime.utcnow(),
+            freshness=datetime.now(timezone.utc),
             confidence=0.95,
             data=timeline_data,
             gaps=[],
@@ -84,7 +84,7 @@ async def get_order_timeline(order_id: str, include: List[str]) -> OrderEvidence
         return OrderEvidenceEnvelope(
             source="mongo",
             entity_refs=[order_id],
-            freshness=datetime.utcnow(),
+            freshness=datetime.now(timezone.utc),
             confidence=0.0,
             data={},
             gaps=["order_timeline_unavailable"],
@@ -109,10 +109,10 @@ class GetOrderTimelineTool(BaseTool):
     description: str = "Fetches order timeline from MongoDB with events, status, and timestamps. Returns order events, delivery times, and status information."
     args_schema: Type[BaseModel] = GetOrderTimelineInput
     
-    async def _arun(self, order_id: str, include: List[str]) -> dict:
-        """Async execution - returns dict representation of OrderEvidenceEnvelope"""
+    async def _arun(self, order_id: str, include: List[str]) -> str:
+        """Async execution - returns JSON string of OrderEvidenceEnvelope"""
         result = await get_order_timeline(order_id, include)
-        return result.dict()
+        return result.model_dump_json()
     
     def _run(self, order_id: str, include: List[str]) -> dict:
         """Sync execution - not supported for async tools"""

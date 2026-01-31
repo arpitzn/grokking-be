@@ -378,12 +378,22 @@ class LLMService:
             try:
                 if isinstance(tool, BaseTool):
                     # Convert BaseTool to dict format
+                    # Get schema - use Pydantic V2 model_json_schema() if available, fallback to schema() for compatibility
+                    parameters = {}
+                    if hasattr(tool, 'args_schema') and tool.args_schema:
+                        if hasattr(tool.args_schema, 'model_json_schema'):
+                            # Pydantic V2
+                            parameters = tool.args_schema.model_json_schema()
+                        elif hasattr(tool.args_schema, 'schema'):
+                            # Pydantic V1 fallback
+                            parameters = tool.args_schema.schema()
+                    
                     tool_dict = {
                         "type": "function",
                         "function": {
                             "name": tool.name,
                             "description": tool.description,
-                            "parameters": tool.args_schema.schema() if hasattr(tool, 'args_schema') and tool.args_schema else {}
+                            "parameters": parameters
                         }
                     }
                     formatted_tools.append(tool_dict)

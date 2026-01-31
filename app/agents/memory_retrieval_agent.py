@@ -6,6 +6,7 @@ Agent Responsibility:
 - Does NOT reason or generate responses
 """
 
+from datetime import datetime, timezone
 from typing import Dict, Any
 
 from app.agent.state import AgentState
@@ -86,11 +87,10 @@ async def memory_retrieval_node(state: AgentState) -> AgentState:
         
         except Exception as e:
             # Non-critical failure - continue
-            from datetime import datetime
             failed_envelope = {
                 "source": "mem0",
                 "entity_refs": [user_id],
-                "freshness": datetime.utcnow().isoformat(),
+                "freshness": datetime.now(timezone.utc).isoformat(),
                 "confidence": 0.0,
                 "data": {},
                 "gaps": [f"{tool_name}_exception"],

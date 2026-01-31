@@ -3,7 +3,7 @@ from app.infra.elasticsearch import ElasticsearchDep, ElasticsearchClient
 from app.infra.llm import get_llm_service
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from typing import List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import json
 import time
@@ -62,7 +62,7 @@ async def ingest_document(
             "metadata": {
                 "filename": filename,
                 "chunk_index": idx,
-                "created_at": datetime.utcnow().isoformat()
+                "created_at": datetime.now(timezone.utc).isoformat()
             }
         })
     embed_duration = (time.time() - embed_start) * 1000

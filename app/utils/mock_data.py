@@ -1,13 +1,13 @@
 """Mock data generation utility for food delivery domain testing"""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone, timezone
 from typing import Dict, Any, List
 import random
 
 
 def generate_mock_order_timeline(order_id: str) -> Dict[str, Any]:
     """Generate mock order timeline data"""
-    base_time = datetime.utcnow() - timedelta(hours=2)
+    base_time = datetime.now(timezone.utc) - timedelta(hours=2)
     
     return {
         "order_id": order_id,
@@ -50,7 +50,7 @@ def generate_mock_customer_profile(customer_id: str) -> Dict[str, Any]:
         "avg_order_value": round(random.uniform(20, 50), 2),
         "refund_count": random.randint(0, 5),
         "refund_rate": round(random.uniform(0, 0.1), 3),
-        "last_order_date": (datetime.utcnow() - timedelta(days=random.randint(0, 30))).isoformat(),
+        "last_order_date": (datetime.now(timezone.utc) - timedelta(days=random.randint(0, 30))).isoformat(),
         "preferred_cuisines": random.sample(["Italian", "Chinese", "Mexican", "Indian", "Thai"], k=3),
         "avg_rating_given": round(random.uniform(3.5, 5.0), 1),
         "complaint_count": random.randint(0, 3),
@@ -112,13 +112,13 @@ def generate_mock_memory_results(user_id: str, query: str) -> Dict[str, Any]:
             {
                 "memory_id": "mem_001",
                 "content": "Customer previously reported food quality issue with Italian restaurant. Refund was issued.",
-                "timestamp": (datetime.utcnow() - timedelta(days=15)).isoformat(),
+                "timestamp": (datetime.now(timezone.utc) - timedelta(days=15)).isoformat(),
                 "similarity_score": 0.88
             },
             {
                 "memory_id": "mem_002",
                 "content": "Customer had delivery delay complaint last month. Partial refund provided.",
-                "timestamp": (datetime.utcnow() - timedelta(days=10)).isoformat(),
+                "timestamp": (datetime.now(timezone.utc) - timedelta(days=10)).isoformat(),
                 "similarity_score": 0.75
             }
         ],

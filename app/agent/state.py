@@ -24,6 +24,14 @@ def merge_dicts(left: Dict, right: Dict) -> Dict:
     return result
 
 
+def take_right(left: Any, right: Any) -> Any:
+    """
+    Reducer that takes the rightmost (latest) value.
+    Used for fields that should be overwritten, not merged, when updated concurrently.
+    """
+    return right
+
+
 class AgentState(TypedDict):
     """
     Comprehensive state schema for food delivery agentic operations co-pilot.
@@ -49,25 +57,25 @@ class AgentState(TypedDict):
     evidence: Annotated[Dict[str, List[Dict]], merge_dicts]  # mongo[], policy[], memory[]
     retrieval_status: Annotated[Dict[str, Any], merge_dicts]  # tracks completion/failure of parallel retrievals
     
-    # Decision slice
-    analysis: Dict[str, Any]  # hypotheses[], action_candidates[], confidence, gaps
-    guardrails: Dict[str, Any]  # compliance_result, routing_decision (auto/human - FINAL), confidence_gate_result
+    # Decision slice - may be updated concurrently if reasoning runs multiple times
+    analysis: Annotated[Dict[str, Any], take_right]  # hypotheses[], action_candidates[], confidence, gaps
+    guardrails: Annotated[Dict[str, Any], take_right]  # compliance_result, routing_decision (auto/human - FINAL), confidence_gate_result
     
-    # Outputs
-    final_response: str
-    handover_packet: Optional[Dict[str, Any]]
+    # Outputs - may be updated by response_synthesis or human_escalation
+    final_response: Annotated[str, take_right]
+    handover_packet: Annotated[Optional[Dict[str, Any]], take_right]
     
     # Working Memory Management
-    working_memory: List[Dict[str, str]]  # Last N=10 messages (trimmed + summarized view)
-    conversation_summary: Optional[str]  # Periodic async summary (stored in MongoDB)
+    working_memory: Annotated[List[Dict[str, str]], take_right]  # Last N=10 messages (trimmed + summarized view)
+    conversation_summary: Annotated[Optional[str], take_right]  # Periodic async summary (stored in MongoDB)
     
     # Multi-turn conversation support
-    conversation_history: List[Dict[str, str]]  # Last 5 messages (verbatim)
-    turn_number: int  # Current turn in conversation
+    conversation_history: Annotated[List[Dict[str, str]], take_right]  # Last 5 messages (verbatim)
+    turn_number: Annotated[int, take_right]  # Current turn in conversation
     
     # Observability - PARALLEL UPDATES from all nodes
     trace_events: Annotated[List[Dict[str, Any]], add]
-    cot_trace: Annotated[List[Dict[str, str]], add]  # Hybrid: simple by default, rich when needed
+    cot_trace: Annotated[List[Dict[str, Any]], add]  # turn can be int, phase/content are str
     
     # Internal subgraph state - used by parallel retrieval subgraphs for LLM iterations
     messages: Annotated[List, add]  # LangChain messages for agentic tool calling

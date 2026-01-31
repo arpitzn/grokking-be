@@ -6,7 +6,7 @@ Criticality: decision-critical
 Observability: Emits tool_call_started, tool_call_completed, tool_call_failed events
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Type
 
 from langchain_core.tools import BaseTool
@@ -59,7 +59,7 @@ async def get_customer_ops_profile(customer_id: str) -> CustomerEvidenceEnvelope
         result = CustomerEvidenceEnvelope(
             source="mongo",
             entity_refs=[customer_id],
-            freshness=datetime.utcnow(),
+            freshness=datetime.now(timezone.utc),
             confidence=0.92,
             data=profile_data,
             gaps=[],
@@ -83,7 +83,7 @@ async def get_customer_ops_profile(customer_id: str) -> CustomerEvidenceEnvelope
         return CustomerEvidenceEnvelope(
             source="mongo",
             entity_refs=[customer_id],
-            freshness=datetime.utcnow(),
+            freshness=datetime.now(timezone.utc),
             confidence=0.0,
             data={},
             gaps=["customer_profile_unavailable"],
@@ -104,10 +104,10 @@ class GetCustomerOpsProfileTool(BaseTool):
     description: str = "Fetches customer operations profile from MongoDB. Returns customer history, preferences, lifetime value, refund history, and operational metrics."
     args_schema: Type[BaseModel] = GetCustomerOpsProfileInput
     
-    async def _arun(self, customer_id: str) -> dict:
-        """Async execution - returns dict representation of CustomerEvidenceEnvelope"""
+    async def _arun(self, customer_id: str) -> str:
+        """Async execution - returns JSON string of CustomerEvidenceEnvelope"""
         result = await get_customer_ops_profile(customer_id)
-        return result.dict()
+        return result.model_dump_json()
     
     def _run(self, customer_id: str) -> dict:
         """Sync execution - not supported for async tools"""

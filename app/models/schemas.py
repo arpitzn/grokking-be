@@ -97,7 +97,7 @@ class HandoverPacket(BaseModel):
     analysis: Dict[str, Any]
     guardrails: Dict[str, Any]
     raw_text: str
-    cot_trace: List[Dict[str, str]] = []
+    cot_trace: List[Dict[str, Any]] = []  # turn can be int, phase/content are str
 
 
 class EscalationResponse(BaseModel):

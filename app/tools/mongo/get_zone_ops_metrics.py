@@ -6,7 +6,7 @@ Criticality: decision-critical
 Observability: Emits tool_call_started, tool_call_completed, tool_call_failed events
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Type
 
 from langchain_core.tools import BaseTool
@@ -59,7 +59,7 @@ async def get_zone_ops_metrics(zone_id: str, time_window: str) -> ZoneEvidenceEn
         result = ZoneEvidenceEnvelope(
             source="mongo",
             entity_refs=[zone_id],
-            freshness=datetime.utcnow(),
+            freshness=datetime.now(timezone.utc),
             confidence=0.90,
             data=metrics_data,
             gaps=[],
@@ -83,7 +83,7 @@ async def get_zone_ops_metrics(zone_id: str, time_window: str) -> ZoneEvidenceEn
         return ZoneEvidenceEnvelope(
             source="mongo",
             entity_refs=[zone_id],
-            freshness=datetime.utcnow(),
+            freshness=datetime.now(timezone.utc),
             confidence=0.0,
             data={},
             gaps=["zone_metrics_unavailable"],
@@ -105,10 +105,10 @@ class GetZoneOpsMetricsTool(BaseTool):
     description: str = "Fetches zone operations metrics from MongoDB. Returns delivery performance, incident rates, active drivers, and operational health indicators."
     args_schema: Type[BaseModel] = GetZoneOpsMetricsInput
     
-    async def _arun(self, zone_id: str, time_window: str) -> dict:
-        """Async execution - returns dict representation of ZoneEvidenceEnvelope"""
+    async def _arun(self, zone_id: str, time_window: str) -> str:
+        """Async execution - returns JSON string of ZoneEvidenceEnvelope"""
         result = await get_zone_ops_metrics(zone_id, time_window)
-        return result.dict()
+        return result.model_dump_json()
     
     def _run(self, zone_id: str, time_window: str) -> dict:
         """Sync execution - not supported for async tools"""

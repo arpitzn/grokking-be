@@ -6,7 +6,7 @@ Criticality: decision-critical
 Observability: Emits tool_call_started, tool_call_completed, tool_call_failed events
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Type
 
 from langchain_core.tools import BaseTool
@@ -69,7 +69,7 @@ async def search_policies(query: str, filters: Dict, top_k: int) -> PolicyEviden
         result = PolicyEvidenceEnvelope(
             source="elasticsearch",
             entity_refs=[],
-            freshness=datetime.utcnow(),
+            freshness=datetime.now(timezone.utc),
             confidence=0.90,
             data=policy_data,
             gaps=[],
@@ -93,7 +93,7 @@ async def search_policies(query: str, filters: Dict, top_k: int) -> PolicyEviden
         return PolicyEvidenceEnvelope(
             source="elasticsearch",
             entity_refs=[],
-            freshness=datetime.utcnow(),
+            freshness=datetime.now(timezone.utc),
             confidence=0.0,
             data={},
             gaps=["policy_search_failed"],
@@ -116,10 +116,10 @@ class SearchPoliciesTool(BaseTool):
     description: str = "Searches policy documents in Elasticsearch. Returns relevant policies, SOPs, and SLAs matching the query and filters."
     args_schema: Type[BaseModel] = SearchPoliciesInput
     
-    async def _arun(self, query: str, filters: Dict, top_k: int) -> dict:
-        """Async execution - returns dict representation of PolicyEvidenceEnvelope"""
+    async def _arun(self, query: str, filters: Dict, top_k: int) -> str:
+        """Async execution - returns JSON string of PolicyEvidenceEnvelope"""
         result = await search_policies(query, filters, top_k)
-        return result.dict()
+        return result.model_dump_json()
     
     def _run(self, query: str, filters: Dict, top_k: int) -> dict:
         """Sync execution - not supported for async tools"""

@@ -3,7 +3,7 @@ from app.infra.mongo import get_mongodb_client
 from app.infra.llm import get_llm_service, get_cheap_model
 from app.services.conversation import get_messages
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 logger = logging.getLogger(__name__)
@@ -73,7 +73,7 @@ Summary:"""
     summary_doc = {
         "conversation_id": conversation_id,
         "summary": summary_text,
-        "last_summarized_at": datetime.utcnow(),
+        "last_summarized_at": datetime.now(timezone.utc),
         "message_count_at_summary": message_count,
         "version": (summary_doc.get("version", 0) + 1) if summary_doc else 1
     }

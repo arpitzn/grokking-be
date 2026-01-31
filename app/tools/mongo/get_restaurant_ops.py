@@ -6,7 +6,7 @@ Criticality: decision-critical
 Observability: Emits tool_call_started, tool_call_completed, tool_call_failed events
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Type
 
 from langchain_core.tools import BaseTool
@@ -57,7 +57,7 @@ async def get_restaurant_ops(restaurant_id: str, time_window: str) -> Restaurant
         result = RestaurantEvidenceEnvelope(
             source="mongo",
             entity_refs=[restaurant_id],
-            freshness=datetime.utcnow(),
+            freshness=datetime.now(timezone.utc),
             confidence=0.91,
             data=ops_data,
             gaps=[],
@@ -81,7 +81,7 @@ async def get_restaurant_ops(restaurant_id: str, time_window: str) -> Restaurant
         return RestaurantEvidenceEnvelope(
             source="mongo",
             entity_refs=[restaurant_id],
-            freshness=datetime.utcnow(),
+            freshness=datetime.now(timezone.utc),
             confidence=0.0,
             data={},
             gaps=["restaurant_ops_unavailable"],
@@ -103,10 +103,10 @@ class GetRestaurantOpsTool(BaseTool):
     description: str = "Fetches restaurant operations data from MongoDB. Returns prep time metrics, quality ratings, complaint counts, order volume, and operational status."
     args_schema: Type[BaseModel] = GetRestaurantOpsInput
     
-    async def _arun(self, restaurant_id: str, time_window: str) -> dict:
-        """Async execution - returns dict representation of RestaurantEvidenceEnvelope"""
+    async def _arun(self, restaurant_id: str, time_window: str) -> str:
+        """Async execution - returns JSON string of RestaurantEvidenceEnvelope"""
         result = await get_restaurant_ops(restaurant_id, time_window)
-        return result.dict()
+        return result.model_dump_json()
     
     def _run(self, restaurant_id: str, time_window: str) -> dict:
         """Sync execution - not supported for async tools"""

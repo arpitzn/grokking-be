@@ -6,7 +6,7 @@ Criticality: decision-critical
 Observability: Emits tool_call_started, tool_call_completed, tool_call_failed events
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Type
 
 from langchain_core.tools import BaseTool
@@ -63,7 +63,7 @@ async def get_incident_signals(scope: Dict, time_window: str) -> IncidentEvidenc
         result = IncidentEvidenceEnvelope(
             source="mongo",
             entity_refs=[scope.get("order_id", scope.get("customer_id", ""))],
-            freshness=datetime.utcnow(),
+            freshness=datetime.now(timezone.utc),
             confidence=0.88,
             data=signals_data,
             gaps=[],
@@ -87,7 +87,7 @@ async def get_incident_signals(scope: Dict, time_window: str) -> IncidentEvidenc
         return IncidentEvidenceEnvelope(
             source="mongo",
             entity_refs=[],
-            freshness=datetime.utcnow(),
+            freshness=datetime.now(timezone.utc),
             confidence=0.0,
             data={},
             gaps=["incident_signals_unavailable"],
@@ -109,10 +109,10 @@ class GetIncidentSignalsTool(BaseTool):
     description: str = "Fetches incident signals from MongoDB. Returns relevant incidents matching scope (order_id, customer_id, zone_id, restaurant_id) within the specified time window."
     args_schema: Type[BaseModel] = GetIncidentSignalsInput
     
-    async def _arun(self, scope: Dict, time_window: str) -> dict:
-        """Async execution - returns dict representation of IncidentEvidenceEnvelope"""
+    async def _arun(self, scope: Dict, time_window: str) -> str:
+        """Async execution - returns JSON string of IncidentEvidenceEnvelope"""
         result = await get_incident_signals(scope, time_window)
-        return result.dict()
+        return result.model_dump_json()
     
     def _run(self, scope: Dict, time_window: str) -> dict:
         """Sync execution - not supported for async tools"""

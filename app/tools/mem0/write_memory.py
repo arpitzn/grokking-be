@@ -6,7 +6,7 @@ Criticality: non-critical
 Observability: Emits tool_call_started, tool_call_completed, tool_call_failed events
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict
 
 from app.models.evidence import MemoryEvidenceEnvelope, ToolResult, ToolStatus
@@ -44,15 +44,15 @@ async def write_memory(user_id: str, memory_type: str, content: Dict) -> MemoryE
         write_result = {
             "user_id": user_id,
             "memory_type": memory_type,
-            "memory_id": f"mem_{datetime.utcnow().timestamp()}",
-            "written_at": datetime.utcnow().isoformat(),
+            "memory_id": f"mem_{datetime.now(timezone.utc).timestamp()}",
+            "written_at": datetime.now(timezone.utc).isoformat(),
             "status": "success"
         }
         
         result = MemoryEvidenceEnvelope(
             source="mem0",
             entity_refs=[user_id],
-            freshness=datetime.utcnow(),
+            freshness=datetime.now(timezone.utc),
             confidence=0.90,
             data=write_result,
             gaps=[],
@@ -77,7 +77,7 @@ async def write_memory(user_id: str, memory_type: str, content: Dict) -> MemoryE
         return MemoryEvidenceEnvelope(
             source="mem0",
             entity_refs=[user_id],
-            freshness=datetime.utcnow(),
+            freshness=datetime.now(timezone.utc),
             confidence=0.0,
             data={},
             gaps=["memory_write_failed"],

@@ -6,7 +6,7 @@ Criticality: decision-critical
 Observability: Emits tool_call_started, tool_call_completed, tool_call_failed events
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Type
 
 from langchain_core.tools import BaseTool
@@ -56,7 +56,7 @@ async def get_case_context(case_id: str) -> CaseEvidenceEnvelope:
         result = CaseEvidenceEnvelope(
             source="mongo",
             entity_refs=[case_id],
-            freshness=datetime.utcnow(),
+            freshness=datetime.now(timezone.utc),
             confidence=0.93,
             data=context_data,
             gaps=[],
@@ -80,7 +80,7 @@ async def get_case_context(case_id: str) -> CaseEvidenceEnvelope:
         return CaseEvidenceEnvelope(
             source="mongo",
             entity_refs=[case_id],
-            freshness=datetime.utcnow(),
+            freshness=datetime.now(timezone.utc),
             confidence=0.0,
             data={},
             gaps=["case_context_unavailable"],
@@ -101,10 +101,10 @@ class GetCaseContextTool(BaseTool):
     description: str = "Fetches aggregated case context from MongoDB. Returns consolidated view of case history, related orders, agent notes, and resolution history."
     args_schema: Type[BaseModel] = GetCaseContextInput
     
-    async def _arun(self, case_id: str) -> dict:
-        """Async execution - returns dict representation of CaseEvidenceEnvelope"""
+    async def _arun(self, case_id: str) -> str:
+        """Async execution - returns JSON string of CaseEvidenceEnvelope"""
         result = await get_case_context(case_id)
-        return result.dict()
+        return result.model_dump_json()
     
     def _run(self, case_id: str) -> dict:
         """Sync execution - not supported for async tools"""
