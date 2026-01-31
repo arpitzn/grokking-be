@@ -2,6 +2,7 @@
 
 import json
 import asyncio
+import hashlib
 from enum import Enum
 from typing import Dict, Any, AsyncGenerator
 
@@ -56,6 +57,14 @@ class EventStreamer:
             EvidenceSource.MEMORY: 0
         }
         self.full_response = ""
+        self.seen_hypotheses = set()  # Track seen hypothesis content hashes
+        self.seen_incident_banners = set()  # Track seen incident banner content
+        self.seen_cot_hashes = set()  # Track seen CoT trace entry hashes for deduplication
+        self.seen_evidence_hashes = {
+            EvidenceSource.MONGO: set(),
+            EvidenceSource.POLICY: set(),
+            EvidenceSource.MEMORY: set()
+        }  # Track seen evidence item hashes for deduplication
     
     def _format_sse(self, data: Dict[str, Any]) -> str:
         """Format data as SSE event"""
@@ -76,7 +85,18 @@ class EventStreamer:
             return
         
         cot_trace = node_output["cot_trace"]
-        for entry in cot_trace[self.seen_cot:]:
+        new_entries = cot_trace[self.seen_cot:]
+        
+        # Deduplicate entries by content hash
+        unique_new_entries = []
+        for entry in new_entries:
+            entry_str = json.dumps(entry, sort_keys=True)
+            entry_hash = hashlib.md5(entry_str.encode()).hexdigest()
+            if entry_hash not in self.seen_cot_hashes:
+                self.seen_cot_hashes.add(entry_hash)
+                unique_new_entries.append(entry)
+        
+        for entry in unique_new_entries:
             yield self._format_sse({
                 "event": EventType.THINKING,
                 "phase": entry.get("phase"),
@@ -93,14 +113,25 @@ class EventStreamer:
         evidence = node_output["evidence"]
         for source in EvidenceSource:
             if source.value in evidence:
-                new_items = evidence[source.value][self.seen_evidence[source]:]
+                source_list = evidence[source.value]
+                new_items = source_list[self.seen_evidence[source]:]
+                
+                # Deduplicate evidence items by content hash
+                unique_new_items = []
                 for item in new_items:
+                    item_str = json.dumps(item, sort_keys=True)
+                    item_hash = hashlib.md5(item_str.encode()).hexdigest()
+                    if item_hash not in self.seen_evidence_hashes[source]:
+                        self.seen_evidence_hashes[source].add(item_hash)
+                        unique_new_items.append(item)
+                
+                for item in unique_new_items:
                     yield self._format_sse({
                         "event": EventType.EVIDENCE_CARD,
                         "source": source.value,
                         "data": item
                     })
-                self.seen_evidence[source] = len(evidence[source.value])
+                self.seen_evidence[source] = len(source_list)
     
     async def stream_hypotheses(self, node_output: Dict[str, Any]) -> AsyncGenerator[str, None]:
         """Stream hypothesis updates from reasoning node"""
@@ -109,10 +140,16 @@ class EventStreamer:
         
         analysis = node_output["analysis"]
         for hyp in analysis.get("hypotheses", []):
-            yield self._format_sse({
-                "event": EventType.HYPOTHESIS_UPDATE,
-                "hypothesis": hyp
-            })
+            # Create hash of hypothesis content for deduplication
+            hyp_str = json.dumps(hyp, sort_keys=True)
+            hyp_hash = hashlib.md5(hyp_str.encode()).hexdigest()
+            
+            if hyp_hash not in self.seen_hypotheses:
+                self.seen_hypotheses.add(hyp_hash)
+                yield self._format_sse({
+                    "event": EventType.HYPOTHESIS_UPDATE,
+                    "hypothesis": hyp
+                })
     
     async def stream_refund_recommendation(self, node_output: Dict[str, Any]) -> AsyncGenerator[str, None]:
         """Stream refund recommendation if present"""
@@ -136,11 +173,20 @@ class EventStreamer:
         intent = node_output["intent"]
         safety_flags = intent.get("safety_flags", [])
         if safety_flags:
-            yield self._format_sse({
-                "event": EventType.INCIDENT_BANNER,
+            # Create hash of banner content for deduplication
+            banner_content = json.dumps({
                 "severity": intent.get("severity", "medium"),
-                "flags": safety_flags
-            })
+                "flags": sorted(safety_flags)  # Sort for consistent hashing
+            }, sort_keys=True)
+            banner_hash = hashlib.md5(banner_content.encode()).hexdigest()
+            
+            if banner_hash not in self.seen_incident_banners:
+                self.seen_incident_banners.add(banner_hash)
+                yield self._format_sse({
+                    "event": EventType.INCIDENT_BANNER,
+                    "severity": intent.get("severity", "medium"),
+                    "flags": safety_flags
+                })
     
     async def stream_response(self, node_output: Dict[str, Any], chunk_size: int = 10) -> AsyncGenerator[str, None]:
         """Stream final response token-by-token"""
