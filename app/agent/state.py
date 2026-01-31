@@ -118,7 +118,7 @@ class AgentState(TypedDict):
     """
     
     # Input slice - PARALLEL UPDATES (subgraphs return full state)
-    case: Annotated[Dict[str, Any], merge_dicts]  # persona, channel, order_id, customer_id, zone_id, raw_text, locale, conversation_id, user_id
+    case: Annotated[Dict[str, Any], merge_dicts]  # persona, channel, order_id, user_id, zone_id, raw_text, locale, conversation_id
     
     # Interpretation slice - PARALLEL UPDATES (subgraphs return full state)
     intent: Annotated[Dict[str, Any], merge_dicts]  # issue_type, severity, SLA_risk, safety_flags
@@ -224,7 +224,6 @@ def create_initial_state(
             "user_id": request.user_id,
             "conversation_id": conversation_id,
             "order_id": None,
-            "customer_id": request.user_id,
             "zone_id": None,
             "restaurant_id": None,
             "locale": "en-US",

@@ -1,7 +1,7 @@
 """
 Agent Responsibility:
 - Normalizes incoming case input using LLM-based entity extraction
-- Extracts entities (order_id, customer_id, zone_id) with confidence scoring
+- Extracts entities (order_id, user_id, zone_id) with confidence scoring
 - Populates case slice in state
 - Does NOT classify intent or retrieve data
 """
@@ -20,9 +20,9 @@ class IngestionOutput(BaseModel):
         None, 
         description="Extracted order ID (e.g., 'order_12345', '12345', 'ORDER-123')"
     )
-    customer_id: str = Field(
-        ..., 
-        description="Customer identifier (defaults to user_id if not found)"
+    user_id: Optional[str] = Field(
+        None, 
+        description="User identifier (defaults to request.user_id if not found)"
     )
     zone_id: Optional[str] = Field(
         None, 
@@ -88,14 +88,13 @@ async def ingestion_node(state: AgentState) -> AgentState:
         "persona": persona,
         "channel": channel,
         "order_id": response.order_id,
-        "customer_id": response.customer_id or user_id,
+        "user_id": response.user_id or user_id,  # Changed from customer_id
         "zone_id": response.zone_id,
         "restaurant_id": response.restaurant_id,
         "raw_text": raw_text,
         "normalized_text": response.normalized_query,  # Add normalized version
         "locale": "en-US",
-        "conversation_id": conversation_id,
-        "user_id": user_id
+        "conversation_id": conversation_id
     }
     
     # Initialize confidence tracking

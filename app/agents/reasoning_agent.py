@@ -112,7 +112,7 @@ async def reasoning_node(state: AgentState) -> AgentState:
             "severity": intent.get('severity', 'low'),
             "sla_risk": str(intent.get('SLA_risk', False)),
             "order_id": case.get('order_id', 'N/A'),
-            "customer_id": case.get('customer_id', 'N/A'),
+            "user_id": case.get('user_id', 'N/A'),  # Changed from customer_id
             "mongo_count": str(len(mongo_evidence)),
             "policy_count": str(len(policy_evidence)),
             "memory_count": str(len(memory_evidence)),

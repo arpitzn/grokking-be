@@ -25,6 +25,15 @@ class MongoDBClient:
         self.conversations = self.db.conversations
         self.messages = self.db.messages
         self.summaries = self.db.summaries
+        
+        # Food delivery collections
+        self.orders = self.db.orders
+        self.users = self.db.users  # Renamed from customers
+        self.zones = self.db.zones
+        self.zone_metrics_history = self.db.zone_metrics_history
+        self.restaurants = self.db.restaurants
+        self.restaurant_metrics_history = self.db.restaurant_metrics_history
+        self.support_tickets = self.db.support_tickets  # New - merges incidents + cases
     
     async def close(self):
         """Close MongoDB connection"""

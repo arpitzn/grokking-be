@@ -15,6 +15,8 @@ from pydantic import BaseModel, Field
 from app.models.evidence import CustomerEvidenceEnvelope, ToolResult, ToolStatus
 from app.models.tool_spec import ToolCriticality, ToolSpec
 from app.utils.tool_observability import emit_tool_event
+from app.utils.uuid_helpers import uuid_to_binary, is_uuid_string
+from app.infra.mongo import get_mongodb_client
 
 # Tool specification
 TOOL_SPEC = ToolSpec(
@@ -41,19 +43,45 @@ async def get_customer_ops_profile(customer_id: str) -> CustomerEvidenceEnvelope
     })
     
     try:
-        # Mock implementation for hackathon
+        # Get MongoDB client
+        db = await get_mongodb_client()
+        
+        # Convert UUID string to Binary UUID if needed
+        query_user_id = uuid_to_binary(customer_id) if is_uuid_string(customer_id) else customer_id
+        
+        # Query user from MongoDB by _id (users collection uses _id as primary key)
+        user_doc = await db.users.find_one({"_id": query_user_id})
+        
+        if not user_doc:
+            # User not found - return empty with gap
+            return CustomerEvidenceEnvelope(
+                source="mongo",
+                entity_refs=[customer_id],
+                freshness=datetime.now(timezone.utc),
+                confidence=0.0,
+                data={},
+                gaps=["customer_profile_unavailable"],
+                provenance={"query": "get_customer_ops_profile", "customer_id": customer_id},
+                tool_result=ToolResult(status=ToolStatus.FAILED, error="User not found")
+            )
+        
+        # Transform MongoDB document to tool output format
+        # Convert _id Binary UUID to string for output
+        from app.utils.uuid_helpers import binary_to_uuid
+        user_id_str = binary_to_uuid(user_doc.get("_id")) if isinstance(user_doc.get("_id"), Binary) else str(user_doc.get("_id"))
+        
         profile_data = {
-            "customer_id": customer_id,
-            "total_orders": 45,
-            "lifetime_value": 1250.50,
-            "avg_order_value": 27.79,
-            "refund_count": 2,
-            "refund_rate": 0.044,
-            "last_order_date": "2026-01-29T18:30:00Z",
-            "preferred_cuisines": ["Italian", "Chinese", "Mexican"],
-            "avg_rating_given": 4.5,
-            "complaint_count": 1,
-            "vip_status": False
+            "user_id": user_id_str,
+            "persona": user_doc.get("persona"),
+            "sub_category": user_doc.get("sub_category"),
+            "total_orders": user_doc.get("total_orders"),
+            "lifetime_value": user_doc.get("lifetime_value"),
+            "avg_order_value": user_doc.get("avg_order_value"),
+            "refund_count": user_doc.get("refund_count"),
+            "refund_rate": user_doc.get("refund_rate"),
+            "last_order_date": user_doc.get("last_order_date").isoformat() if user_doc.get("last_order_date") else None,
+            "preferred_cuisines": user_doc.get("preferred_cuisines", []),
+            "vip_status": user_doc.get("vip_status", False)
         }
         
         result = CustomerEvidenceEnvelope(
@@ -63,7 +91,7 @@ async def get_customer_ops_profile(customer_id: str) -> CustomerEvidenceEnvelope
             confidence=0.92,
             data=profile_data,
             gaps=[],
-            provenance={"query": "get_customer_ops_profile", "latency_ms": 45},
+            provenance={"query": "get_customer_ops_profile", "customer_id": customer_id, "latency_ms": 45},
             tool_result=ToolResult(status=ToolStatus.SUCCESS, data=profile_data)
         )
         
