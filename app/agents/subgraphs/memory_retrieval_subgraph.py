@@ -8,7 +8,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agent.state import AgentState, emit_phase_event
 from app.infra.llm import get_cheap_model, get_llm_service
-from app.infra.retrieval_prompts import get_prompts
+from app.infra.prompts import get_prompts
 from app.tools.registry import MEMORY_TOOLS
 
 logger = logging.getLogger(__name__)

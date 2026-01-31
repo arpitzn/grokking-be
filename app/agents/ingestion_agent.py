@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from app.agent.state import AgentState, emit_phase_event
 from app.infra.llm import get_llm_service, get_cheap_model
+from app.infra.prompts import get_prompts
 
 
 class IngestionOutput(BaseModel):
@@ -61,34 +62,18 @@ async def ingestion_node(state: AgentState) -> AgentState:
     persona = state.get("case", {}).get("persona", "customer")
     channel = state.get("case", {}).get("channel", "web")
     
-    # Build prompt for LLM-based entity extraction
-    prompt = f"""Extract entities from this food delivery support query.
-
-Query: "{raw_text}"
-
-Extract the following entities if present:
-- order_id: Any order number, ID, or reference (e.g., "order 12345", "ORDER-123", "#456")
-- zone_id: Delivery zone identifier if mentioned
-- restaurant_id: Restaurant ID or name if mentioned
-- normalized_query: A cleaned version of the query (fix typos, expand abbreviations)
-- entities_found: List which entity types you successfully extracted
-- confidence: Your confidence in the extraction (0.0 to 1.0)
-
-If an entity is not mentioned in the query, set it to null.
-Customer ID will default to the user_id: {user_id}
-
-Examples:
-- "My order 12345 is late" → order_id: "12345", confidence: 0.95
-- "ORDER-ABC-789 from zone 5" → order_id: "ABC-789", zone_id: "5", confidence: 0.9
-- "Where is my food?" → order_id: null, confidence: 0.8 (no order mentioned)
-"""
+    # Get prompts from centralized prompts module
+    system_prompt, user_prompt = get_prompts(
+        "ingestion_agent",
+        {
+            "raw_text": raw_text,
+            "user_id": user_id
+        }
+    )
     
     messages = [
-        {
-            "role": "system", 
-            "content": "You are an entity extraction system for food delivery support. Extract entities accurately and provide confidence scores."
-        },
-        {"role": "user", "content": prompt}
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
     ]
     
     # Use structured output with cheap model

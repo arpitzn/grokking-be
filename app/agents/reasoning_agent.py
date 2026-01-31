@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from app.agent.state import AgentState, emit_phase_event
 from app.infra.llm import get_llm_service, get_expensive_model
+from app.infra.prompts import get_prompts
 
 
 class Hypothesis(BaseModel):
@@ -103,68 +104,27 @@ async def reasoning_node(state: AgentState) -> AgentState:
     # Count evidence items
     total_evidence = len(mongo_evidence) + len(policy_evidence) + len(memory_evidence)
     
-    # Build prompt for reasoning with self-reflection
-    prompt = f"""You are a reasoning agent for a food delivery support system. Analyze the evidence and provide structured analysis with self-reflection.
-
-Case Context:
-- Issue Type: {intent.get('issue_type', 'unknown')}
-- Severity: {intent.get('severity', 'low')}
-- SLA Risk: {intent.get('SLA_risk', False)}
-- Order ID: {case.get('order_id', 'N/A')}
-- Customer ID: {case.get('customer_id', 'N/A')}
-
-Evidence from MongoDB ({len(mongo_evidence)} items):
-{_format_evidence(mongo_evidence)}
-
-Evidence from Policies ({len(policy_evidence)} items):
-{_format_evidence(policy_evidence)}
-
-Evidence from Memory ({len(memory_evidence)} items):
-{_format_evidence(memory_evidence)}
-
-Analyze the evidence and provide:
-
-1. **hypotheses**: Top 3-5 hypotheses about what happened, ranked by confidence
-   - Each hypothesis should have: hypothesis text, confidence (0-1), evidence sources
-
-2. **action_candidates**: Recommended actions with confidence and rationale
-   - Examples: "issue_refund", "apologize_and_explain", "escalate_to_human", "request_more_info"
-
-3. **confidence**: Overall confidence in your analysis (0-1)
-
-4. **gaps**: What information is missing that would improve your analysis?
-
-5. **Self-Reflection** (CRITICAL):
-   - evidence_quality: Rate the quality ("high", "medium", "low")
-     * high: Complete, consistent, from multiple sources
-     * medium: Partial coverage, some gaps
-     * low: Sparse, contradictory, or unreliable
-   
-   - conflicting_evidence: List any contradictions you found
-     * Example: "Order timeline shows delivered, but customer says not received"
-   
-   - needs_more_data: Do you need more information? (true/false)
-     * true if: Low evidence quality, high gaps, conflicting data
-     * false if: Sufficient evidence for confident decision
-   
-   - recommended_next_steps: What should happen next?
-     * Examples: ["escalate_to_human"], ["fetch_delivery_photos"], ["auto_respond"]
-   
-   - reasoning_trace: Explain your step-by-step reasoning process
-
-Guidelines:
-- Be honest about uncertainty - low confidence is better than false confidence
-- Flag conflicts explicitly - don't ignore contradictions
-- If evidence is weak, recommend escalation or more data gathering
-- Consider policy compliance in your action recommendations
-"""
+    # Get prompts from centralized prompts module
+    system_prompt, user_prompt = get_prompts(
+        "reasoning_agent",
+        {
+            "issue_type": intent.get('issue_type', 'unknown'),
+            "severity": intent.get('severity', 'low'),
+            "sla_risk": str(intent.get('SLA_risk', False)),
+            "order_id": case.get('order_id', 'N/A'),
+            "customer_id": case.get('customer_id', 'N/A'),
+            "mongo_count": str(len(mongo_evidence)),
+            "policy_count": str(len(policy_evidence)),
+            "memory_count": str(len(memory_evidence)),
+            "mongo_evidence": _format_evidence(mongo_evidence),
+            "policy_evidence": _format_evidence(policy_evidence),
+            "memory_evidence": _format_evidence(memory_evidence)
+        }
+    )
     
     messages = [
-        {
-            "role": "system", 
-            "content": "You are a reasoning agent with self-reflection capabilities. Analyze evidence critically and honestly assess your confidence and limitations."
-        },
-        {"role": "user", "content": prompt}
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
     ]
     
     # Use expensive model for reasoning with structured output

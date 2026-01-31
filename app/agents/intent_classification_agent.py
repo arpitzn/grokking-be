@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from app.agent.state import AgentState, emit_phase_event
 from app.infra.llm import get_llm_service, get_cheap_model
+from app.infra.prompts import get_prompts
 
 
 class IntentOutput(BaseModel):
@@ -59,36 +60,18 @@ async def intent_classification_node(state: AgentState) -> AgentState:
     normalized_text = case.get("normalized_text", raw_text)
     order_id = case.get("order_id")
     
-    # Build prompt for intent classification
-    prompt = f"""Classify this food delivery support query.
-
-Query: "{normalized_text}"
-Order ID: {order_id or "Not mentioned"}
-
-Classify the query:
-1. issue_type: Choose ONE from ["refund", "delivery_delay", "quality", "safety", "account", "other"]
-2. severity: Choose ONE from ["low", "medium", "high"]
-   - high: Urgent issues, safety concerns, angry customers, SLA violations
-   - medium: Standard complaints, delays, quality issues
-   - low: Simple questions, account updates, general inquiries
-3. SLA_risk: true if this might violate service level agreements (e.g., long delays, repeated issues)
-4. safety_flags: List any safety concerns (e.g., ["food_safety"], ["driver_behavior"], or empty list)
-5. reasoning: Brief explanation of your classification
-6. confidence: Your confidence in this classification (0.0 to 1.0)
-
-Examples:
-- "My order is 2 hours late and I want a refund" → issue_type: "refund", severity: "high", SLA_risk: true
-- "Food was cold" → issue_type: "quality", severity: "medium", SLA_risk: false
-- "How do I update my address?" → issue_type: "account", severity: "low", SLA_risk: false
-- "Driver was rude and driving dangerously" → issue_type: "safety", severity: "high", safety_flags: ["driver_behavior"]
-"""
+    # Get prompts from centralized prompts module
+    system_prompt, user_prompt = get_prompts(
+        "intent_classification_agent",
+        {
+            "normalized_text": normalized_text,
+            "order_id": order_id or "Not mentioned"
+        }
+    )
     
     messages = [
-        {
-            "role": "system", 
-            "content": "You are an intent classification system for food delivery support. Classify accurately and provide confidence scores."
-        },
-        {"role": "user", "content": prompt}
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
     ]
     
     # Use structured output with cheap model

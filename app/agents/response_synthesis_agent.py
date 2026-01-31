@@ -10,6 +10,7 @@ from typing import Dict, Any
 
 from app.agent.state import AgentState, emit_phase_event
 from app.infra.llm import get_llm_service, get_expensive_model
+from app.infra.prompts import get_prompts
 
 
 async def response_synthesis_node(state: AgentState) -> AgentState:
@@ -31,28 +32,22 @@ async def response_synthesis_node(state: AgentState) -> AgentState:
     top_hypothesis = hypotheses[0] if hypotheses else {"hypothesis": "Unable to determine", "confidence": 0.0}
     top_action = action_candidates[0] if action_candidates else {"action": "investigate", "rationale": "Need more information"}
     
-    # Build prompt for response synthesis
-    prompt = f"""You are a customer support agent for a food delivery platform.
-
-Customer Query: {case.get('raw_text', '')}
-Issue Type: {intent.get('issue_type', 'unknown')}
-
-Top Hypothesis: {top_hypothesis.get('hypothesis', '')} (Confidence: {top_hypothesis.get('confidence', 0.0):.2f})
-Recommended Action: {top_action.get('action', '')}
-Rationale: {top_action.get('rationale', '')}
-
-Generate a friendly, helpful response to the customer that:
-1. Acknowledges their concern
-2. Explains the situation based on the evidence
-3. Proposes the recommended action
-4. Provides next steps
-
-Be empathetic, clear, and professional. Keep it concise (2-3 paragraphs).
-"""
+    # Get prompts from centralized prompts module
+    system_prompt, user_prompt = get_prompts(
+        "response_synthesis_agent",
+        {
+            "raw_text": case.get('raw_text', ''),
+            "issue_type": intent.get('issue_type', 'unknown'),
+            "top_hypothesis": top_hypothesis.get('hypothesis', ''),
+            "hypothesis_confidence": f"{top_hypothesis.get('confidence', 0.0):.2f}",
+            "top_action": top_action.get('action', ''),
+            "action_rationale": top_action.get('rationale', '')
+        }
+    )
     
     messages = [
-        {"role": "system", "content": "You are a helpful customer support agent for a food delivery platform. Be empathetic, clear, and professional."},
-        {"role": "user", "content": prompt}
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
     ]
     
     # Use expensive model for response synthesis
