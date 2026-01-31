@@ -28,6 +28,7 @@ class Settings(BaseSettings):
 
     # Mem0
     mem0_api_key: str
+    mem0_app_id: str = "food_delivery_ops"
 
     # Elasticsearch
     elasticsearch_node: str

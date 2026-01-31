@@ -1,20 +1,20 @@
 """Mem0 client for semantic memory using official SDK"""
 from app.infra.config import settings
-from mem0 import MemoryClient
-from typing import Optional, List, Dict, Any
+from mem0 import AsyncMemoryClient
+from typing import Optional, List, Dict, Any, Literal
 import logging
-import asyncio
 
 logger = logging.getLogger(__name__)
 
 
 class Mem0Service:
-    """Mem0 service wrapper using official MemoryClient SDK"""
+    """Mem0 service wrapper using AsyncMemoryClient SDK"""
     
     def __init__(self, api_key: Optional[str] = None):
-        """Initialize Mem0 client with API key"""
+        """Initialize Mem0 async client with API key"""
         self.api_key = api_key or settings.mem0_api_key
-        self.client = MemoryClient(api_key=self.api_key)
+        self.app_id = settings.mem0_app_id
+        self.client = AsyncMemoryClient(api_key=self.api_key)
     
     async def ping(self) -> bool:
         """
@@ -26,8 +26,7 @@ class Mem0Service:
         try:
             # Use search with minimal query as health check
             # This validates API key and connectivity using documented API
-            result = await asyncio.to_thread(
-                self.client.search,
+            result = await self.client.search(
                 query="health_check",
                 filters={"user_id": "health_check_user"},
                 limit=1
@@ -59,11 +58,59 @@ class Mem0Service:
             Result dict from Mem0 API
         """
         try:
-            # Run add in thread pool since SDK might be synchronous
-            result = await asyncio.to_thread(self.client.add, messages, user_id=user_id)
+            result = await self.client.add(messages, user_id=user_id)
             return result if isinstance(result, dict) else {}
         except Exception as e:
             logger.error(f"Mem0 add_interaction error: {e}")
+            return {}
+    
+    async def add_memory(
+        self,
+        content: str,
+        memory_type: Literal["episodic", "semantic", "procedural"],
+        user_id: Optional[str] = None,
+        additional_metadata: Optional[Dict] = None
+    ) -> Dict[str, Any]:
+        """
+        Add memory with proper classification.
+        
+        Args:
+            content: Declarative memory statement (not "remember this")
+            memory_type: episodic, semantic, or procedural
+            user_id: Required for episodic (user-scoped), None for semantic/procedural (app-scoped)
+            additional_metadata: Optional extra metadata
+        
+        Returns:
+            Result dict from Mem0 API
+        """
+        try:
+            # All memory types use "role": "user"
+            messages = [{"role": "user", "content": content}]
+            
+            # Build metadata
+            metadata = {"memory_type": memory_type}
+            if additional_metadata:
+                metadata.update(additional_metadata)
+            
+            # User-scoped (episodic)
+            if user_id:
+                result = await self.client.add(
+                    messages,
+                    user_id=user_id,
+                    app_id=self.app_id,
+                    metadata=metadata
+                )
+            else:
+                # App-scoped (semantic/procedural)
+                result = await self.client.add(
+                    messages,
+                    app_id=self.app_id,
+                    metadata=metadata
+                )
+            
+            return result if isinstance(result, dict) else {}
+        except Exception as e:
+            logger.error(f"Mem0 add_memory error: {e}")
             return {}
     
     async def search(
@@ -84,8 +131,7 @@ class Mem0Service:
             List of memory dicts with 'memory' field
         """
         try:
-            # Run search in thread pool since SDK might be synchronous
-            result = await asyncio.to_thread(self.client.search, query, user_id=user_id, limit=limit)
+            result = await self.client.search(query, user_id=user_id, limit=limit)
             # Handle response format: result['results'] array with 'memory' field
             if isinstance(result, dict) and 'results' in result:
                 return result['results']
@@ -95,6 +141,57 @@ class Mem0Service:
                 return []
         except Exception as e:
             logger.error(f"Mem0 search error: {e}")
+            return []
+    
+    async def search_memory(
+        self,
+        query: str,
+        memory_type: Optional[Literal["episodic", "semantic", "procedural"]] = None,
+        user_id: Optional[str] = None,
+        limit: int = 5
+    ) -> List[Dict[str, Any]]:
+        """
+        Search memories with type and scope filtering.
+        
+        Args:
+            query: Search query string
+            memory_type: Optional memory type filter (episodic, semantic, procedural)
+            user_id: Optional user ID for user-scoped search (episodic)
+            limit: Maximum number of results (default: 5)
+        
+        Returns:
+            List of memory dicts
+        """
+        try:
+            # Build filters
+            filter_conditions = []
+            
+            if user_id:
+                # User-scoped search
+                filter_conditions.append({"user_id": user_id})
+            
+            if memory_type:
+                # Add memory type filter
+                filter_conditions.append({"metadata": {"memory_type": memory_type}})
+            
+            # Construct filter
+            filters = None
+            if len(filter_conditions) == 1:
+                filters = filter_conditions[0]
+            elif len(filter_conditions) > 1:
+                filters = {"AND": filter_conditions}
+            
+            result = await self.client.search(query, filters=filters, limit=limit)
+            
+            # Handle response format
+            if isinstance(result, dict) and 'results' in result:
+                return result['results']
+            elif isinstance(result, list):
+                return result
+            else:
+                return []
+        except Exception as e:
+            logger.error(f"Mem0 search_memory error: {e}")
             return []
     
     async def close(self):

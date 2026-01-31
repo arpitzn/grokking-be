@@ -9,10 +9,14 @@ IMPORTANT: Memory operations are always async and never block.
 """
 
 import asyncio
+import logging
 from typing import Dict, Any
 
 from app.agent.state import AgentState
 from app.tools.mem0.write_memory import write_memory
+from app.utils.memory_builder import MemoryBuilder
+
+logger = logging.getLogger(__name__)
 
 
 async def summarize_conversation_async(conversation_id: str) -> None:
@@ -33,50 +37,116 @@ async def summarize_conversation_async(conversation_id: str) -> None:
 
 async def memory_write_node(state: AgentState) -> AgentState:
     """
-    Memory write node: Async writes to Mem0 and triggers summarization.
+    Memory write node: Async writes to Mem0 with parallel execution and rich context.
     
-    Input: case, intent, final_response or handover_packet
-    Output: Non-blocking memory updates
+    Input: case, intent, final_response, evidence, analysis, conversation_history
+    Output: Non-blocking memory updates executed in parallel
     """
+    # Extract rich context from state
     case = state.get("case", {})
     intent = state.get("intent", {})
+    evidence = state.get("evidence", {})
+    analysis = state.get("analysis", {})
+    conversation_history = state.get("conversation_history", [])
+    guardrails = state.get("guardrails", {})
     final_response = state.get("final_response", "")
     handover_packet = state.get("handover_packet")
     
     user_id = case.get("customer_id", case.get("user_id", ""))
+    outcome = final_response or (handover_packet.get("escalation_id") if handover_packet else "pending")
     
-    # 1. Write to Mem0 (episodic + semantic) - async, non-blocking
+    # Collect all memory write tasks for parallel execution
+    memory_tasks = []
+    
+    # 1. Write episodic memories (user-scoped) - with rich context
     try:
-        # Episodic memory: Store the case outcome
-        episodic_content = {
-            "case": case,
-            "intent": intent,
-            "outcome": final_response or (handover_packet.get("escalation_id") if handover_packet else "pending")
-        }
+        episodic_memories = await MemoryBuilder.build_episodic_user_memory(
+            case=case,
+            intent=intent,
+            outcome=outcome,
+            evidence=evidence,
+            analysis=analysis,
+            conversation_history=conversation_history
+        )
         
-        # Fire-and-forget async write
-        asyncio.create_task(write_memory(
-            user_id=user_id,
-            memory_type="episodic",
-            content=episodic_content
-        ))
-        
-        # Semantic memory: Store learned patterns (if any)
-        if final_response:
-            semantic_content = {
-                "issue_type": intent.get("issue_type"),
-                "resolution": "auto_response",
-                "pattern": f"Customer {intent.get('issue_type')} issue resolved via auto-response"
-            }
-            asyncio.create_task(write_memory(
-                user_id=user_id,
-                memory_type="semantic",
-                content=semantic_content
+        for memory_content in episodic_memories:
+            memory_tasks.append(write_memory(
+                content=memory_content,
+                memory_type="episodic",
+                user_id=user_id  # User-scoped
             ))
-    
     except Exception as e:
-        # Non-blocking failure - log but don't raise
-        pass
+        logger.error(f"Episodic memory build failed: {e}")
+    
+    # 2. Write semantic memories (app-scoped) - with rich context
+    try:
+        zone_id = case.get("zone_id")
+        restaurant_id = case.get("restaurant_id")
+        issue_type = intent.get("issue_type", "unknown")
+        
+        # Get incident signals from evidence if available
+        incident_signals = []
+        if "mongo" in evidence:
+            for item in evidence.get("mongo", []):
+                if "incident_signals" in item.get("data", {}):
+                    incident_signals.extend(item["data"]["incident_signals"])
+        
+        if zone_id or restaurant_id:
+            semantic_memories = await MemoryBuilder.build_semantic_app_memory(
+                zone_id=zone_id,
+                restaurant_id=restaurant_id,
+                incident_signals=incident_signals,
+                issue_type=issue_type,
+                evidence=evidence,
+                analysis=analysis,
+                intent=intent,
+                case=case
+            )
+            
+            for memory_content in semantic_memories:
+                memory_tasks.append(write_memory(
+                    content=memory_content,
+                    memory_type="semantic",
+                    user_id=None  # App-scoped
+                ))
+    except Exception as e:
+        logger.error(f"Semantic memory build failed: {e}")
+    
+    # 3. Write procedural memories (app-scoped) - with rich context
+    try:
+        if final_response:
+            issue_type = intent.get("issue_type", "unknown")
+            resolution_action = "auto-response"
+            confidence = 0.85  # Based on successful resolution
+            
+            procedural_memories = await MemoryBuilder.build_procedural_app_memory(
+                issue_type=issue_type,
+                resolution_action=resolution_action,
+                confidence=confidence,
+                analysis=analysis,
+                evidence=evidence,
+                intent=intent,
+                guardrails=guardrails,
+                final_response=final_response
+            )
+            
+            for memory_content in procedural_memories:
+                memory_tasks.append(write_memory(
+                    content=memory_content,
+                    memory_type="procedural",
+                    user_id=None  # App-scoped
+                ))
+    except Exception as e:
+        logger.error(f"Procedural memory build failed: {e}")
+    
+    # Execute all memory writes in parallel (fire-and-forget)
+    if memory_tasks:
+        # Wrap gather in a coroutine function since create_task expects a coroutine
+        async def _run_memory_tasks():
+            await asyncio.gather(*memory_tasks, return_exceptions=True)
+        
+        asyncio.create_task(_run_memory_tasks())
+        logger.info(f"Fired {len(memory_tasks)} memory write tasks in parallel")
     
     # 2. Trigger summarization if needed (every 10 messages)
     conversation_id = case.get("conversation_id", "")

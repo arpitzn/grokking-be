@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import chat, knowledge, health, threads, escalations, memory
 import logging
 import json
+import asyncio
 
 # Configure JSON logging
 class JSONFormatter(logging.Formatter):
@@ -87,6 +88,24 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("Shutting down...")
+    
+    # Cancel all pending tasks before closing connections
+    try:
+        # Get current event loop
+        loop = asyncio.get_running_loop()
+        # Get all pending tasks (excluding current task)
+        pending_tasks = [task for task in asyncio.all_tasks(loop) if not task.done() and task is not asyncio.current_task()]
+        if pending_tasks:
+            logger.info(f"Cancelling {len(pending_tasks)} pending tasks...")
+            # Cancel all pending tasks
+            for task in pending_tasks:
+                task.cancel()
+            
+            # Wait for tasks to complete cancellation (with timeout)
+            await asyncio.gather(*pending_tasks, return_exceptions=True)
+            logger.info("All pending tasks cancelled")
+    except Exception as e:
+        logger.warning(f"Error cancelling pending tasks: {e}")
     
     # Close MongoDB connection
     try:
