@@ -30,13 +30,16 @@ class ElasticsearchClient:
         self.index_name = settings.elasticsearch_index_name
     
     async def create_index_if_not_exists(self):
-        """Create the knowledge_base index with vector mapping if it doesn't exist"""
+        """Create the unified index with vector mapping if it doesn't exist"""
         if not await self.client.indices.exists(index=self.index_name):
             mapping = {
                 "mappings": {
                     "properties": {
                         "user_id": {"type": "keyword"},
-                        "content": {"type": "text"},
+                        "content": {
+                            "type": "text",
+                            "analyzer": "english"
+                        },
                         "embedding": {
                             "type": "dense_vector",
                             "dims": 1536,  # OpenAI text-embedding-3-small dimensions
@@ -49,7 +52,7 @@ class ElasticsearchClient:
                         "issue_type": {"type": "keyword"},  # Array of keywords
                         "priority": {"type": "keyword"},
                         "doc_weight": {"type": "float"},
-                        # Existing metadata
+                        # Metadata
                         "metadata": {
                             "properties": {
                                 "file_id": {"type": "keyword"},
@@ -57,8 +60,18 @@ class ElasticsearchClient:
                                 "chunk_type": {"type": "keyword"},  # "text" or "image"
                                 "filename": {"type": "keyword"},
                                 "total_chunks": {"type": "integer"},
-                                "created_date": {"type": "date"},
-                                "created_at": {"type": "date"}  # Keep for backward compat
+                                "created_at": {"type": "date"}
+                            }
+                        }
+                    }
+                },
+                "settings": {
+                    "analysis": {
+                        "analyzer": {
+                            "content_analyzer": {
+                                "type": "custom",
+                                "tokenizer": "standard",
+                                "filter": ["lowercase", "stop", "snowball"]
                             }
                         }
                     }
@@ -140,10 +153,10 @@ class ElasticsearchClient:
             "size": 10000,  # Large size to get all documents
             "_source": [
                 "category", "persona", "issue_type", "priority", "doc_weight",
-                "metadata.file_id", "metadata.filename", "metadata.created_date"
+                "metadata.file_id", "metadata.filename", "metadata.created_at"
             ],
             "sort": [
-                {"metadata.created_date": {"order": "desc"}}
+                {"metadata.created_at": {"order": "desc"}}
             ]
         }
         
@@ -171,7 +184,7 @@ class ElasticsearchClient:
                         "priority": source.get("priority"),
                         "doc_weight": source.get("doc_weight"),
                         "chunk_count": 0,
-                        "created_at": metadata.get("created_date", "")
+                        "created_at": metadata.get("created_at", "")
                     }
                 
                 files_dict[file_key]["chunk_count"] += 1
@@ -195,10 +208,10 @@ class ElasticsearchClient:
             "size": 10000,
             "_source": [
                 "user_id", "category", "persona", "issue_type", "priority", "doc_weight",
-                "metadata.file_id", "metadata.filename", "metadata.created_date"
+                "metadata.file_id", "metadata.filename", "metadata.created_at"
             ],
             "sort": [
-                {"metadata.created_date": {"order": "desc"}}
+                {"metadata.created_at": {"order": "desc"}}
             ]
         }
         
@@ -226,7 +239,7 @@ class ElasticsearchClient:
                         "priority": source.get("priority"),
                         "doc_weight": source.get("doc_weight"),
                         "chunk_count": 0,
-                        "created_at": metadata.get("created_date", "")
+                        "created_at": metadata.get("created_at", "")
                     }
                 
                 if file_id in files_dict:
@@ -257,10 +270,10 @@ class ElasticsearchClient:
             "size": 10000,
             "_source": [
                 "user_id", "category", "persona", "issue_type", "priority", "doc_weight",
-                "metadata.file_id", "metadata.filename", "metadata.created_date"
+                "metadata.file_id", "metadata.filename", "metadata.created_at"
             ],
             "sort": [
-                {"metadata.created_date": {"order": "desc"}}
+                {"metadata.created_at": {"order": "desc"}}
             ]
         }
         
@@ -288,7 +301,7 @@ class ElasticsearchClient:
                         "priority": source.get("priority"),
                         "doc_weight": source.get("doc_weight"),
                         "chunk_count": 0,
-                        "created_at": metadata.get("created_date", "")
+                        "created_at": metadata.get("created_at", "")
                     }
                 
                 if file_id in files_dict:
@@ -459,6 +472,128 @@ class ElasticsearchClient:
             return None
         except Exception as e:
             logger.error(f"Elasticsearch get document by file_id error: {e}")
+            return None
+    
+    async def search_policies(
+        self,
+        query: str,
+        filters: Dict[str, Any],
+        top_k: int = 5
+    ) -> List[Dict[str, Any]]:
+        """
+        Search policy documents using vector search with filters
+        
+        Args:
+            query: Search query string (will be embedded)
+            filters: Dict with keys: priority, category, issue_type
+            top_k: Number of results to return
+        
+        Returns:
+            List of policy documents with scores
+        """
+        # Embed query
+        from app.infra.llm import get_llm_service
+        llm_service = get_llm_service()
+        query_embedding = await llm_service.embeddings(query, model="text-embedding-3-small")
+        
+        # Build kNN search with filters
+        search_body = {
+            "knn": {
+                "field": "embedding",
+                "query_vector": query_embedding,
+                "k": top_k,
+                "num_candidates": top_k * 10
+            },
+            "filter": [],
+            "size": top_k,
+            "_source": ["content", "category", "priority", "issue_type", "metadata"]
+        }
+        
+        # Add filters
+        if filters.get("priority"):
+            search_body["filter"].append({"term": {"priority": filters["priority"]}})
+        if filters.get("category"):
+            search_body["filter"].append({"term": {"category": filters["category"]}})
+        if filters.get("issue_type"):
+            search_body["filter"].append({"terms": {"issue_type": filters["issue_type"]}})
+        
+        try:
+            response = await self.client.search(
+                index=self.index_name,
+                body=search_body
+            )
+            
+            results = []
+            for hit in response["hits"]["hits"]:
+                source = hit["_source"]
+                metadata = source.get("metadata", {})
+                results.append({
+                    "file_id": metadata.get("file_id"),
+                    "filename": metadata.get("filename", ""),
+                    "content": source.get("content", ""),
+                    "category": source.get("category"),
+                    "priority": source.get("priority"),
+                    "issue_type": source.get("issue_type", []),
+                    "score": hit["_score"]
+                })
+            
+            return results
+        except Exception as e:
+            logger.error(f"Elasticsearch policy search error: {e}")
+            return []
+    
+    async def lookup_policy_by_file_id(
+        self,
+        file_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Lookup all chunks for a file_id and concatenate content
+        
+        Args:
+            file_id: File identifier
+        
+        Returns:
+            Policy document with concatenated content or None if not found
+        """
+        search_body = {
+            "query": {
+                "term": {"metadata.file_id": file_id}
+            },
+            "size": 10000,  # Get all chunks
+            "sort": [{"metadata.chunk_index": {"order": "asc"}}],
+            "_source": ["content", "category", "priority", "issue_type", "metadata"]
+        }
+        
+        try:
+            response = await self.client.search(
+                index=self.index_name,
+                body=search_body
+            )
+            
+            if not response["hits"]["hits"]:
+                return None
+            
+            chunks = []
+            first_chunk = None
+            for hit in response["hits"]["hits"]:
+                source = hit["_source"]
+                metadata = source.get("metadata", {})
+                chunks.append(source.get("content", ""))
+                
+                if first_chunk is None:
+                    first_chunk = {
+                        "file_id": metadata.get("file_id"),
+                        "filename": metadata.get("filename", ""),
+                        "category": source.get("category"),
+                        "priority": source.get("priority"),
+                        "issue_type": source.get("issue_type", [])
+                    }
+            
+            # Concatenate all chunks
+            first_chunk["content"] = "\n\n".join(chunks)
+            return first_chunk
+        except Exception as e:
+            logger.error(f"Elasticsearch policy lookup error: {e}")
             return None
     
     async def health_check(self) -> Dict[str, Any]:
