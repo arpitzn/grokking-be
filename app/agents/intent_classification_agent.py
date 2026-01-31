@@ -79,7 +79,7 @@ async def intent_classification_node(state: AgentState) -> AgentState:
     llm = llm_service.get_structured_output_llm_instance(
         model_name=get_cheap_model(),
         schema=IntentOutput,
-        temperature=0.3  # Low temperature for consistent classification
+        temperature=0  # Low temperature for consistent classification
     )
     
     lc_messages = llm_service.convert_messages(messages)

@@ -21,7 +21,7 @@ def create_policy_rag_subgraph():
     llm_with_tools = llm_service.get_llm_instance_with_tools(
         model_name=get_cheap_model(),
         tools=POLICY_TOOLS,
-        temperature=0.3
+        temperature=0
     )
     
     def agent_node(state: AgentState) -> AgentState:

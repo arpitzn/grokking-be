@@ -128,7 +128,7 @@ async def guardrails_node(state: AgentState) -> AgentState:
     analysis_confidence = state.get("analysis", {}).get("confidence", 0.0)
     
     # Use the lower threshold (0.7) for routing decisions as per plan
-    CONFIDENCE_THRESHOLD_ROUTING = 0.7
+    CONFIDENCE_THRESHOLD_ROUTING = 0.6
     confidence_gate_passed = overall_confidence >= CONFIDENCE_THRESHOLD_ROUTING
     
     # Check if reasoning agent needs more data

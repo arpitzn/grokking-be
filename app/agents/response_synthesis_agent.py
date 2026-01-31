@@ -54,7 +54,7 @@ async def response_synthesis_node(state: AgentState) -> AgentState:
     llm_service = get_llm_service()
     llm = llm_service.get_llm_instance(
         model_name=get_expensive_model(),
-        temperature=0.7
+        temperature=0.3
     )
     lc_messages = llm_service.convert_messages(messages)
     response = await llm.ainvoke(lc_messages)

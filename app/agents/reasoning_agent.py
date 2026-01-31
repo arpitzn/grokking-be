@@ -132,7 +132,7 @@ async def reasoning_node(state: AgentState) -> AgentState:
     llm = llm_service.get_structured_output_llm_instance(
         model_name=get_expensive_model(),
         schema=ReasoningOutput,
-        temperature=0.5  # Moderate temperature for creative reasoning
+        temperature=0.3  # Moderate temperature for creative reasoning
     )
     
     lc_messages = llm_service.convert_messages(messages)

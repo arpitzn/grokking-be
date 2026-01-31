@@ -15,7 +15,7 @@ from typing import List, Dict, Any, Literal
 from pydantic import BaseModel, Field
 
 from app.agent.state import AgentState, emit_phase_event
-from app.infra.llm import get_llm_service, get_cheap_model
+from app.infra.llm import get_llm_service, get_expensive_model
 from app.infra.prompts import get_prompts
 
 
@@ -79,9 +79,9 @@ async def planner_node(state: AgentState) -> AgentState:
     # Call LLM with structured output
     llm_service = get_llm_service()
     llm = llm_service.get_structured_output_llm_instance(
-        model_name=get_cheap_model(),
+        model_name=get_expensive_model(),
         schema=PlanningOutput,
-        temperature=0.3
+        temperature=0
     )
     
     messages = [

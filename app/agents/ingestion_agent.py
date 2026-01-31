@@ -81,7 +81,7 @@ async def ingestion_node(state: AgentState) -> AgentState:
     llm = llm_service.get_structured_output_llm_instance(
         model_name=get_cheap_model(),
         schema=IngestionOutput,
-        temperature=0.1  # Low temperature for deterministic extraction
+        temperature=0  # Low temperature for deterministic extraction
     )
     
     lc_messages = llm_service.convert_messages(messages)
