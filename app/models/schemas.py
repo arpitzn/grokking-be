@@ -1,6 +1,6 @@
 """Pydantic models for API request/response schemas"""
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -51,13 +51,49 @@ class KnowledgeUploadRequest(BaseModel):
     content: str  # Base64 encoded or raw text
 
 
+class FileUploadResult(BaseModel):
+    """Per-file upload result for multi-file uploads"""
+    filename: str
+    file_id: str
+    chunk_count: int
+    status: str  # "success" | "partial" | "failed"
+    error: Optional[str] = None
+
+
 class KnowledgeUploadResponse(BaseModel):
     """Response schema for knowledge upload"""
 
-    document_id: Optional[str] = (
-        None  # None when batch indexing doesn't return individual IDs
-    )
+    file_id: str
     chunk_count: int
+    status: str  # "success" | "partial" | "failed"
+    # Per-file breakdown for multi-file uploads
+    files: Optional[List[FileUploadResult]] = None
+    error: Optional[str] = None
+
+
+class DocumentListItem(BaseModel):
+    """Schema for document list item with filters"""
+    filename: str
+    file_id: str
+    category: str
+    persona: List[str]
+    issue_type: List[str]
+    priority: str
+    doc_weight: float
+    chunk_count: int
+    created_at: str
+
+
+class DeleteFileResponse(BaseModel):
+    """Response schema for file deletion"""
+    file_id: str
+    deleted: int  # Number of chunks deleted
+    status: str = "success"
+
+
+class DeleteAllResponse(BaseModel):
+    """Response schema for bulk deletion"""
+    deleted: int  # Total number of chunks deleted
     status: str = "success"
 
 

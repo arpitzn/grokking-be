@@ -43,11 +43,22 @@ class ElasticsearchClient:
                             "index": True,
                             "similarity": "cosine"
                         },
+                        # Filter fields (top-level for querying and filtering)
+                        "category": {"type": "keyword"},
+                        "persona": {"type": "keyword"},  # Array of keywords
+                        "issue_type": {"type": "keyword"},  # Array of keywords
+                        "priority": {"type": "keyword"},
+                        "doc_weight": {"type": "float"},
+                        # Existing metadata
                         "metadata": {
                             "properties": {
-                                "filename": {"type": "keyword"},
+                                "file_id": {"type": "keyword"},
                                 "chunk_index": {"type": "integer"},
-                                "created_at": {"type": "date"}
+                                "chunk_type": {"type": "keyword"},  # "text" or "image"
+                                "filename": {"type": "keyword"},
+                                "total_chunks": {"type": "integer"},
+                                "created_date": {"type": "date"},
+                                "created_at": {"type": "date"}  # Keep for backward compat
                             }
                         }
                     }
@@ -112,6 +123,65 @@ class ElasticsearchClient:
             logger.error(f"Elasticsearch search error: {e}")
             return []
     
+    async def list_documents_by_user(
+        self,
+        user_id: str
+    ) -> List[Dict[str, Any]]:
+        """
+        List all documents for a user, aggregated by file
+        
+        Groups chunks by user_id + filename, returns one entry per file
+        with filters from first chunk and total chunk count
+        """
+        search_body = {
+            "query": {
+                "term": {"user_id": user_id}
+            },
+            "size": 10000,  # Large size to get all documents
+            "_source": [
+                "category", "persona", "issue_type", "priority", "doc_weight",
+                "metadata.file_id", "metadata.filename", "metadata.created_date"
+            ],
+            "sort": [
+                {"metadata.created_date": {"order": "desc"}}
+            ]
+        }
+        
+        try:
+            response = await self.client.search(
+                index=self.index_name,
+                body=search_body
+            )
+            
+            # Group by user_id + filename (user_filename)
+            files_dict = {}
+            for hit in response["hits"]["hits"]:
+                source = hit["_source"]
+                metadata = source.get("metadata", {})
+                filename = metadata.get("filename", "unknown")
+                file_key = f"{user_id}_{filename}"
+                
+                if file_key not in files_dict:
+                    files_dict[file_key] = {
+                        "filename": filename,
+                        "file_id": metadata.get("file_id", ""),
+                        "category": source.get("category"),
+                        "persona": source.get("persona", []),
+                        "issue_type": source.get("issue_type", []),
+                        "priority": source.get("priority"),
+                        "doc_weight": source.get("doc_weight"),
+                        "chunk_count": 0,
+                        "created_at": metadata.get("created_date", "")
+                    }
+                
+                files_dict[file_key]["chunk_count"] += 1
+            
+            # Return as list, sorted by newest first (already sorted by ES)
+            return list(files_dict.values())
+        except Exception as e:
+            logger.error(f"Elasticsearch list documents error: {e}")
+            return []
+    
     async def batch_index_documents(
         self,
         documents: List[Dict[str, Any]]
@@ -120,7 +190,7 @@ class ElasticsearchClient:
         Batch index multiple document chunks
         
         Args:
-            documents: List of dicts with keys: user_id, content, embedding, metadata
+            documents: List of dicts with keys: user_id, content, embedding, metadata, and filter fields (category, persona, issue_type, priority, doc_weight)
         
         Returns:
             Dict with total, successful, failed counts
@@ -128,15 +198,14 @@ class ElasticsearchClient:
         actions = []
         for doc in documents:
             actions.append({"index": {"_index": self.index_name}})
-            actions.append({
-                "user_id": doc["user_id"],
-                "content": doc["content"],
-                "embedding": doc["embedding"],
-                "metadata": doc["metadata"]
-            })
+            # Include ALL fields from the document (including filter fields)
+            actions.append(doc)
         
         try:
-            response = await self.client.bulk(operations=actions)
+            response = await self.client.bulk(
+                operations=actions,
+                refresh=True  # Refresh index immediately so documents are searchable
+            )
             
             results = {
                 "total": len(documents),
@@ -163,6 +232,52 @@ class ElasticsearchClient:
                 "failed": len(documents),
                 "errors": [str(e)]
             }
+    
+    async def delete_file_by_id(
+        self,
+        file_id: str
+    ) -> Dict[str, Any]:
+        """
+        Delete all chunks for a file by file_id
+        
+        Uses delete_by_query to remove all documents matching metadata.file_id
+        """
+        # Elasticsearch 8.x API: query parameter instead of body
+        response = await self.client.delete_by_query(
+            index=self.index_name,
+            query={
+                "term": {"metadata.file_id": file_id}
+            },
+            wait_for_completion=True,  # Wait for operation to complete before returning
+            refresh=True  # Refresh index immediately so deletions are visible
+        )
+        
+        return {
+            "deleted": response.get("deleted", 0),
+            "file_id": file_id
+        }
+    
+    async def delete_all_files(
+        self
+    ) -> Dict[str, Any]:
+        """
+        Delete all documents from the index (global delete)
+        
+        Uses delete_by_query with match_all query
+        """
+        # Elasticsearch 8.x API: query parameter instead of body
+        response = await self.client.delete_by_query(
+            index=self.index_name,
+            query={
+                "match_all": {}
+            },
+            wait_for_completion=True,  # Wait for operation to complete before returning
+            refresh=True  # Refresh index immediately so deletions are visible
+        )
+        
+        return {
+            "deleted": response.get("deleted", 0)
+        }
     
     async def health_check(self) -> Dict[str, Any]:
         """Check Elasticsearch cluster health with detailed info"""

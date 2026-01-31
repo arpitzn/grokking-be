@@ -100,6 +100,17 @@ class LLMClient:
             input=text
         )
         return response.data[0].embedding
+    
+    async def embeddings_batch(self, texts: List[str], model: str = "text-embedding-3-small") -> List[List[float]]:
+        """Create embeddings for multiple texts in batch"""
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(api_key=settings.openai_api_key)
+        response = await client.embeddings.create(
+            model=model,
+            input=texts
+        )
+        # Return list of embeddings in same order as input texts
+        return [item.embedding for item in response.data]
 
 
 # Global LLM client instance
