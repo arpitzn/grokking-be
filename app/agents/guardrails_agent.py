@@ -86,23 +86,21 @@ def validate_content_safety(state: AgentState) -> Dict[str, Any]:
 
 def evaluate_tool_failures(state: AgentState) -> List[str]:
     """
-    Evaluates tool failures from retrieval_status and evidence.
+    Evaluates tool failures from evidence (not retrieval_status).
     Returns list of critical failures that require escalation.
     """
-    from app.tools.mongo.get_order_timeline import TOOL_SPEC as ORDER_TIMELINE_SPEC
-    from app.tools.mongo.get_customer_ops_profile import TOOL_SPEC as CUSTOMER_PROFILE_SPEC
-    
     critical_failures = []
-    retrieval_status = state.get("retrieval_status", {})
+    evidence = state.get("evidence", {})
     
-    # Check each retrieval type
-    for retrieval_type, status in retrieval_status.items():
-        failed_tools = status.get("failed_tools", [])
-        for tool_name in failed_tools:
-            # Get tool spec (simplified - would need registry lookup in production)
-            # For hackathon, assume decision-critical tools require escalation
-            if "order" in tool_name or "customer" in tool_name or "policy" in tool_name:
-                critical_failures.append(tool_name)
+    # Check evidence for failed tools
+    for source in ["mongo", "policy", "memory"]:
+        for ev in evidence.get(source, []):
+            status = ev.get("tool_result", {}).get("status", "unknown")
+            if status == "failed":
+                tool_name = ev.get("provenance", {}).get("tool", "unknown")
+                # Check if tool is critical (order, customer, policy)
+                if any(keyword in tool_name for keyword in ["order", "customer", "policy"]):
+                    critical_failures.append(tool_name)
     
     return critical_failures
 
@@ -111,7 +109,7 @@ async def guardrails_node(state: AgentState) -> AgentState:
     """
     Guardrails node: SINGLE AUTHORITY for confidence gating and routing.
     
-    Input: analysis, plan, evidence, retrieval_status
+    Input: analysis, plan, evidence
     Output: guardrails (compliance_result, routing_decision FINAL, confidence_gate_result)
     """
     # 1. Run deterministic compliance checks

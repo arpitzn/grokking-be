@@ -149,7 +149,6 @@ async def chat_stream(request: CaseRequest):
                 "intent": {},
                 "plan": {},
                 "evidence": {},
-                "retrieval_status": {},
                 "analysis": {},
                 "guardrails": {},
                 "final_response": "",

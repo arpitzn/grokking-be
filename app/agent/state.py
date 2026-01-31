@@ -39,7 +39,7 @@ class AgentState(TypedDict):
     State slices:
     - Input: case (persona, channel, order_id, customer_id, zone_id, raw_text, locale)
     - Interpretation: intent (issue_type, severity, SLA_risk, safety_flags), plan (tool_selection, initial_route)
-    - Evidence: evidence (mongo[], policy[], memory[]), retrieval_status (completion tracking)
+    - Evidence: evidence (mongo[], policy[], memory[])
     - Decision: analysis (hypotheses[], action_candidates[], confidence, gaps), guardrails (compliance, routing_decision FINAL)
     - Outputs: final_response, handover_packet
     - Working Memory: working_memory (last 10 messages), conversation_summary (async summaries)
@@ -55,7 +55,6 @@ class AgentState(TypedDict):
     
     # Evidence slice - PARALLEL UPDATES from 3 retrieval subgraphs
     evidence: Annotated[Dict[str, List[Dict]], merge_dicts]  # mongo[], policy[], memory[]
-    retrieval_status: Annotated[Dict[str, Any], merge_dicts]  # tracks completion/failure of parallel retrievals
     
     # Decision slice - may be updated concurrently if reasoning runs multiple times
     analysis: Annotated[Dict[str, Any], take_right]  # hypotheses[], action_candidates[], confidence, gaps

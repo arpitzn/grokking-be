@@ -20,37 +20,6 @@ from langgraph.types import Send
 logger = logging.getLogger(__name__)
 
 
-def retrieval_complete(state: AgentState) -> bool:
-    """
-    Checks if all planned retrievals have completed (success or failure).
-    Reasoning node must NOT execute until this returns True.
-    """
-    retrieval_status = state.get("retrieval_status", {})
-    plan = state.get("plan", {})
-    tool_selection = plan.get("tool_selection", [])
-    
-    # Map tool names to retrieval types
-    retrieval_types = set()
-    for tool in tool_selection:
-        if "mongo" in tool or "order" in tool or "customer" in tool or "zone" in tool or "restaurant" in tool or "incident" in tool or "case" in tool:
-            retrieval_types.add("mongo")
-        elif "policy" in tool or "elastic" in tool or "search" in tool or "lookup" in tool:
-            retrieval_types.add("policy")
-        elif "memory" in tool or "mem0" in tool or "episodic" in tool or "semantic" in tool:
-            retrieval_types.add("memory")
-    
-    # Check all planned retrievals completed
-    for retrieval_type in retrieval_types:
-        if not retrieval_status.get(retrieval_type, {}).get("completed", False):
-            return False
-    
-    # If no retrievals planned, allow reasoning to proceed
-    if not retrieval_types:
-        return True
-    
-    return True
-
-
 def route_to_retrievals(state: AgentState):
     """
     Fan-out: Activate retrieval agents based on planner's tool_selection.
