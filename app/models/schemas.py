@@ -124,7 +124,7 @@ class HandoverPacket(BaseModel):
     """Schema for human escalation handover packet"""
 
     case_id: str
-    customer_id: str
+    user_id: str  # Changed from customer_id
     order_id: Optional[str] = None
     issue_type: str
     severity: str

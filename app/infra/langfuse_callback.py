@@ -52,7 +52,7 @@ class DomainMetadataCallback(BaseCallbackHandler):
                 "severity": intent.get("severity"),
                 "zone_id": case.get("zone_id"),
                 "order_id": case.get("order_id"),
-                "customer_id": case.get("customer_id"),
+                "user_id": case.get("user_id"),  # Changed from customer_id
                 "SLA_risk": intent.get("SLA_risk"),
                 "confidence": analysis.get("confidence"),
                 "routing_decision": guardrails.get("routing_decision"),

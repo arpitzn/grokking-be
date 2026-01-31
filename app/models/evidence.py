@@ -24,7 +24,7 @@ class ToolResult(BaseModel):
 class EvidenceEnvelope(BaseModel):
     """Base evidence envelope - all tools return this structure"""
     source: str  # "mongo", "elasticsearch", "mem0"
-    entity_refs: List[str]  # order_id, customer_id, etc.
+    entity_refs: List[str]  # order_id, user_id, etc. (customer_id kept for backward compatibility in tool params)
     freshness: datetime
     confidence: float  # 0.0 to 1.0
     data: Dict[str, Any]  # Typed payload

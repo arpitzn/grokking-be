@@ -108,7 +108,7 @@ class AgentState(TypedDict):
     Comprehensive state schema for food delivery agentic operations co-pilot.
     
     State slices:
-    - Input: case (persona, channel, order_id, customer_id, zone_id, raw_text, locale)
+    - Input: case (persona, channel, order_id, user_id, zone_id, raw_text, locale)
     - Interpretation: intent (issue_type, severity, SLA_risk, safety_flags), plan (tool_selection, initial_route)
     - Evidence: evidence (mongo[], policy[], memory[])
     - Decision: analysis (hypotheses[], action_candidates[], confidence, gaps), guardrails (compliance, routing_decision FINAL)
@@ -118,7 +118,7 @@ class AgentState(TypedDict):
     """
     
     # Input slice - PARALLEL UPDATES (subgraphs return full state)
-    case: Annotated[Dict[str, Any], merge_dicts]  # persona, channel, order_id, customer_id, zone_id, raw_text, locale, conversation_id, user_id
+    case: Annotated[Dict[str, Any], merge_dicts]  # persona, channel, order_id, user_id, zone_id, raw_text, locale, conversation_id
     
     # Interpretation slice - PARALLEL UPDATES (subgraphs return full state)
     intent: Annotated[Dict[str, Any], merge_dicts]  # issue_type, severity, SLA_risk, safety_flags, reasoning
@@ -221,7 +221,6 @@ def create_initial_state(request: "CaseRequest", conversation_id: str) -> AgentS
             "user_id": request.user_id,
             "conversation_id": conversation_id,
             "order_id": None,
-            "customer_id": request.user_id,
             "zone_id": None,
             "restaurant_id": None,
             "locale": "en-US",

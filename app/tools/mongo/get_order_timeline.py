@@ -15,6 +15,8 @@ from pydantic import BaseModel, Field
 from app.models.evidence import OrderEvidenceEnvelope, ToolResult, ToolStatus
 from app.models.tool_spec import ToolCriticality, ToolSpec
 from app.utils.tool_observability import emit_tool_event
+from app.utils.uuid_helpers import uuid_to_binary, is_uuid_string
+from app.infra.mongo import get_mongodb_client
 
 # Tool specification
 TOOL_SPEC = ToolSpec(
@@ -41,30 +43,78 @@ async def get_order_timeline(order_id: str, include: List[str]) -> OrderEvidence
     })
     
     try:
-        # Mock implementation for hackathon
+        # Get MongoDB client
+        db = await get_mongodb_client()
+        
+        # Convert UUID string to Binary UUID if needed
+        query_order_id = uuid_to_binary(order_id) if is_uuid_string(order_id) else order_id
+        
+        # Query order from MongoDB (try order_id field first, then _id)
+        order_doc = await db.orders.find_one({"order_id": query_order_id})
+        if not order_doc:
+            # Try querying by _id directly
+            order_doc = await db.orders.find_one({"_id": query_order_id})
+        
+        if not order_doc:
+            # Order not found - return empty with gap
+            return OrderEvidenceEnvelope(
+                source="mongo",
+                entity_refs=[order_id],
+                freshness=datetime.now(timezone.utc),
+                confidence=0.0,
+                data={},
+                gaps=["order_timeline_unavailable"],
+                provenance={"query": "get_order_timeline", "order_id": order_id},
+                tool_result=ToolResult(status=ToolStatus.FAILED, error="Order not found")
+            )
+        
+        # Transform MongoDB document to tool output format
+        # Convert Binary UUIDs to strings for output
+        from app.utils.uuid_helpers import binary_to_uuid
+        from bson import Binary
+        
+        order_id_val = order_doc.get("order_id")
+        if isinstance(order_id_val, Binary):
+            order_id_val = binary_to_uuid(order_id_val)
+        
+        user_id_val = order_doc.get("user_id")
+        if isinstance(user_id_val, Binary):
+            user_id_val = binary_to_uuid(user_id_val)
+        
         timeline_data = {
-            "order_id": order_id,
-            "status": "delivered",
-            "created_at": "2026-01-30T10:00:00Z",
+            "order_id": order_id_val,
+            "user_id": user_id_val,
+            "status": order_doc.get("status"),
+            "created_at": order_doc.get("created_at").isoformat() if order_doc.get("created_at") else None,
             "events": [
-                {"timestamp": "2026-01-30T10:00:00Z", "event": "order_placed", "status": "pending"},
-                {"timestamp": "2026-01-30T10:05:00Z", "event": "restaurant_confirmed", "status": "confirmed"},
-                {"timestamp": "2026-01-30T10:20:00Z", "event": "picked_up", "status": "in_transit"},
-                {"timestamp": "2026-01-30T10:45:00Z", "event": "delivered", "status": "delivered"}
+                {
+                    "timestamp": event.get("timestamp").isoformat() if event.get("timestamp") else None,
+                    "event": event.get("event"),
+                    "status": event.get("status")
+                }
+                for event in order_doc.get("events", [])
             ],
-            "estimated_delivery": "2026-01-30T10:40:00Z",
-            "actual_delivery": "2026-01-30T10:45:00Z",
-            "delivery_delay_minutes": 5
+            "estimated_delivery": order_doc.get("estimated_delivery").isoformat() if order_doc.get("estimated_delivery") else None,
+            "actual_delivery": order_doc.get("actual_delivery").isoformat() if order_doc.get("actual_delivery") else None,
+            "delivery_delay_minutes": order_doc.get("delivery_delay_minutes")
         }
+        
+        # Include refund and payment if present
+        if order_doc.get("refund"):
+            timeline_data["refund"] = order_doc.get("refund")
+        if order_doc.get("payment"):
+            timeline_data["payment"] = order_doc.get("payment")
+        if order_doc.get("refund_status"):
+            timeline_data["refund_status"] = order_doc.get("refund_status")
         
         result = OrderEvidenceEnvelope(
             source="mongo",
             entity_refs=[order_id],
             freshness=datetime.now(timezone.utc),
-            confidence=0.95,
+            confidence=0.95 if order_doc.get("events") else 0.7,  # Lower confidence if no events
             data=timeline_data,
-            gaps=[],
-            provenance={"query": "get_order_timeline", "latency_ms": 50},
+            gaps=[] if order_doc.get("events") else ["events_missing"],
+            provenance={"query": "get_order_timeline", "order_id": order_id, "latency_ms": 50},
             tool_result=ToolResult(status=ToolStatus.SUCCESS, data=timeline_data)
         )
         

@@ -47,7 +47,7 @@ def create_mongo_retrieval_subgraph():
             "mongo_retrieval_agent",
             {
                 "order_id": case.get("order_id", "N/A"),
-                "customer_id": case.get("customer_id", "N/A"),
+                "user_id": case.get("user_id", "N/A"),  # Changed from customer_id
                 "zone_id": case.get("zone_id", "N/A"),
                 "restaurant_id": case.get("restaurant_id", "N/A"),
                 "issue_type": intent.get("issue_type", "unknown"),
