@@ -41,35 +41,45 @@ async def read_episodic_memory(user_id: str, query: str, top_k: int) -> MemoryEv
     })
     
     try:
-        # Mock implementation for hackathon
+        # Real Mem0 call
+        from app.infra.mem0 import get_mem0_client
+        
+        mem0_client = await get_mem0_client()
+        results = await mem0_client.search_memory(
+            query=query,
+            memory_type="episodic",
+            user_id=user_id,
+            limit=top_k
+        )
+        
+        # Transform to expected format
+        memories = []
+        for idx, item in enumerate(results):
+            memories.append({
+                "memory_id": item.get("id", f"mem_{idx}"),
+                "content": item.get("memory", ""),
+                "timestamp": item.get("created_at", datetime.now(timezone.utc).isoformat()),
+                "similarity_score": item.get("score", 0.0),
+                "metadata": item.get("metadata", {}),
+                "structured_attributes": item.get("structured_attributes", {}),
+                "app_id": item.get("app_id")
+            })
+        
         memory_data = {
             "user_id": user_id,
             "query": query,
-            "memories": [
-                {
-                    "memory_id": "mem_001",
-                    "content": "Customer previously reported food quality issue with Italian restaurant. Refund was issued.",
-                    "timestamp": "2026-01-15T14:30:00Z",
-                    "similarity_score": 0.88
-                },
-                {
-                    "memory_id": "mem_002",
-                    "content": "Customer had delivery delay complaint last month. Partial refund provided.",
-                    "timestamp": "2026-01-10T09:15:00Z",
-                    "similarity_score": 0.75
-                }
-            ],
-            "total_found": 2
+            "memories": memories,
+            "total_found": len(memories)
         }
         
         result = MemoryEvidenceEnvelope(
             source="mem0",
             entity_refs=[user_id],
             freshness=datetime.now(timezone.utc),
-            confidence=0.85,
+            confidence=0.85 if memories else 0.0,
             data=memory_data,
-            gaps=[],
-            provenance={"query": query, "top_k": top_k},
+            gaps=[] if memories else ["no_episodic_memories"],
+            provenance={"query": query, "top_k": top_k, "memory_type": "episodic"},
             tool_result=ToolResult(status=ToolStatus.SUCCESS, data=memory_data)
         )
         
