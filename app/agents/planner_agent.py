@@ -20,18 +20,21 @@ from app.infra.llm import get_llm_service, get_cheap_model
 
 class PlanningOutput(BaseModel):
     """Structured output for planner LLM"""
+    agents_to_activate: List[Literal["mongo_retrieval", "policy_rag", "memory_retrieval"]] = Field(
+        description="List of agent names to activate in parallel"
+    )
     tool_selection: List[str] = Field(
-        description="List of tool names to execute (e.g., ['get_order_timeline', 'search_policies'])"
+        description="List of tool names for reference (e.g., ['get_order_timeline', 'search_policies'])"
     )
     retrieval_strategy: Literal["parallel", "sequential"] = Field(
         default="parallel",
-        description="How to execute tools: parallel or sequential"
+        description="How to execute agents: parallel or sequential"
     )
     initial_route: Literal["auto", "human"] = Field(
         description="Advisory routing decision: auto for auto-response, human for escalation"
     )
     reasoning: str = Field(
-        description="Brief explanation of tool selection and routing decision"
+        description="Brief explanation of agent and tool selection"
     )
 
 
@@ -123,6 +126,7 @@ Guidelines:
     
     # Populate state["plan"]
     state["plan"] = {
+        "agents_to_activate": planning_output.agents_to_activate,
         "tool_selection": planning_output.tool_selection,
         "retrieval_strategy": planning_output.retrieval_strategy,
         "context": {
@@ -139,7 +143,7 @@ Guidelines:
     state["cot_trace"].append({
         "phase": "planning",
         "turn": turn_number,
-        "content": f"[Turn {turn_number}] Selected tools: {planning_output.tool_selection}. Reasoning: {planning_output.reasoning}. Advisory route: {planning_output.initial_route}"
+        "content": f"[Turn {turn_number}] Selected agents: {planning_output.agents_to_activate}. Tools: {planning_output.tool_selection}. Reasoning: {planning_output.reasoning}. Advisory route: {planning_output.initial_route}"
     })
     
     # Guardrails Agent has FINAL authority to override initial_route

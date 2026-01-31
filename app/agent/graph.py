@@ -22,37 +22,21 @@ logger = logging.getLogger(__name__)
 
 def route_to_retrievals(state: AgentState):
     """
-    Fan-out: Activate retrieval agents based on planner's tool_selection.
+    Agentic fan-out: Planner decides which agents to activate.
+    This function dispatches based on explicit agent names.
     Returns list of Send() for parallel execution in same super-step.
     """
     plan = state.get("plan", {})
-    tool_selection = plan.get("tool_selection", [])
+    agents_to_activate = plan.get("agents_to_activate", [])
     
     results = []
     
-    # Determine which retrieval agents to activate
-    needs_mongo = any(
-        "mongo" in t or "order" in t or "customer" in t or "zone" in t or 
-        "restaurant" in t or "incident" in t or "case" in t
-        for t in tool_selection
-    )
-    needs_policy = any(
-        "policy" in t or "elastic" in t or "search" in t or "lookup" in t
-        for t in tool_selection
-    )
-    needs_memory = any(
-        "memory" in t or "mem0" in t or "episodic" in t or "semantic" in t
-        for t in tool_selection
-    )
+    # Direct dispatch - no inference needed
+    for agent_name in agents_to_activate:
+        if agent_name in ["mongo_retrieval", "policy_rag", "memory_retrieval"]:
+            results.append(Send(agent_name, state))
     
-    if needs_mongo:
-        results.append(Send("mongo_retrieval", state))
-    if needs_policy:
-        results.append(Send("policy_rag", state))
-    if needs_memory:
-        results.append(Send("memory_retrieval", state))
-    
-    # If no retrievals needed, go directly to reasoning
+    # If no agents selected, go directly to reasoning
     if not results:
         results.append(Send("reasoning", state))
     
