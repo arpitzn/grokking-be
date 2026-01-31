@@ -6,7 +6,7 @@ import logging
 import time
 
 from app.agent.graph import get_graph
-from app.agent.state import AgentState
+from app.agent.state import create_initial_state
 from app.infra.guardrails import get_guardrails_manager
 from app.infra.langfuse_callback import langfuse_handler, langfuse
 from app.models.schemas import CaseRequest
@@ -135,32 +135,7 @@ async def chat_stream(request: CaseRequest):
         
         try:
             # Initialize state with new AgentState structure
-            initial_state: AgentState = {
-                "case": {
-                    "persona": request.persona or "customer",
-                    "channel": request.channel or "web",
-                    "raw_text": request.message,
-                    "user_id": request.user_id,
-                    "conversation_id": conversation_id,
-                    "order_id": None,
-                    "customer_id": request.user_id,
-                    "zone_id": None,
-                    "restaurant_id": None,
-                    "locale": "en-US",
-                },
-                "intent": {},
-                "plan": {},
-                "evidence": {},
-                "analysis": {},
-                "guardrails": {},
-                "final_response": "",
-                "handover_packet": None,
-                "working_memory": [],
-                "conversation_summary": None,
-                "trace_events": [],
-                "cot_trace": [],
-                "messages": [],  # Internal subgraph state for LLM iterations
-            }
+            initial_state = create_initial_state(request, conversation_id)
 
             # Build LangGraph config with callbacks and metadata
             langfuse_config = {

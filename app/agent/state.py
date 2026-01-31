@@ -3,6 +3,12 @@
 from operator import add
 from typing import Annotated, Any, Dict, List, Optional, TypedDict
 
+# Forward reference to avoid circular import
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.schemas import CaseRequest
+
 
 def merge_dicts(left: Dict, right: Dict) -> Dict:
     """
@@ -78,3 +84,44 @@ class AgentState(TypedDict):
     
     # Internal subgraph state - used by parallel retrieval subgraphs for LLM iterations
     messages: Annotated[List, add]  # LangChain messages for agentic tool calling
+
+
+def create_initial_state(request: "CaseRequest", conversation_id: str) -> AgentState:
+    """
+    Create initial AgentState from a CaseRequest and conversation_id.
+    
+    Args:
+        request: CaseRequest containing user message and metadata
+        conversation_id: Conversation identifier
+        
+    Returns:
+        Initialized AgentState with default values
+    """
+    return {
+        "case": {
+            "persona": request.persona or "customer",
+            "channel": request.channel or "web",
+            "raw_text": request.message,
+            "user_id": request.user_id,
+            "conversation_id": conversation_id,
+            "order_id": None,
+            "customer_id": request.user_id,
+            "zone_id": None,
+            "restaurant_id": None,
+            "locale": "en-US",
+        },
+        "intent": {},
+        "plan": {},
+        "evidence": {},
+        "analysis": {},
+        "guardrails": {},
+        "final_response": "",
+        "handover_packet": None,
+        "working_memory": [],
+        "conversation_summary": None,
+        "conversation_history": [],
+        "turn_number": 1,
+        "trace_events": [],
+        "cot_trace": [],
+        "messages": [],  # Internal subgraph state for LLM iterations
+    }
