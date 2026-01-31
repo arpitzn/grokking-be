@@ -13,7 +13,7 @@ from typing import Dict, Any, List, Literal
 from pydantic import BaseModel, Field
 
 from app.agent.state import AgentState, emit_phase_event
-from app.infra.llm import get_llm_service, get_expensive_model
+from app.infra.llm import get_llm_service, get_expensive_model, get_cheap_model
 from app.infra.prompts import get_prompts
 
 
@@ -67,14 +67,6 @@ class ReasoningOutput(BaseModel):
         ...,
         description="True if more information is needed for confident decision"
     )
-    recommended_next_steps: List[str] = Field(
-        default_factory=list,
-        description="Suggested next steps (e.g., 'fetch_restaurant_logs', 'escalate_to_human')"
-    )
-    reasoning_trace: str = Field(
-        ...,
-        description="Step-by-step reasoning process"
-    )
 
 
 def _format_evidence(evidence_list: List[Dict[str, Any]]) -> str:
@@ -96,7 +88,7 @@ async def reasoning_node(state: AgentState) -> AgentState:
     intent = state.get("intent", {})
     case = state.get("case", {})
     
-    # Collect all evidence
+    # Collect all evidence (even if empty for simple queries)
     mongo_evidence = evidence.get("mongo", [])
     policy_evidence = evidence.get("policy", [])
     memory_evidence = evidence.get("memory", [])
@@ -104,13 +96,13 @@ async def reasoning_node(state: AgentState) -> AgentState:
     # Count evidence items
     total_evidence = len(mongo_evidence) + len(policy_evidence) + len(memory_evidence)
     
-    # Build execution messages from conversation history + current turn
+    # Build execution messages from working memory + current turn
     messages = []
     
-    # Add conversation history for multi-turn context
-    conversation_history = state.get("conversation_history", [])
-    for turn in conversation_history:
-        messages.append({"role": turn["role"], "content": turn["content"]})
+    # Add working memory for multi-turn context
+    working_memory = state.get("working_memory", [])
+    for msg in working_memory:
+        messages.append({"role": msg["role"], "content": msg["content"]})
     
     # Get prompts from centralized prompts module for current turn
     system_prompt, user_prompt = get_prompts(
@@ -134,12 +126,23 @@ async def reasoning_node(state: AgentState) -> AgentState:
     messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": user_prompt})
     
-    # Use expensive model for reasoning with structured output
+    # Model selection: Use cheap model for simple conversational queries, expensive for complex issues
+    severity = intent.get('severity', 'low')
+    issue_type = intent.get('issue_type', 'unknown')
+    
+    if severity == "low" and issue_type in ["greeting", "question", "acknowledgment", "clarification_request"]:
+        model_name = get_cheap_model()
+        temperature = 0.1  # More deterministic for simple cases
+    else:
+        model_name = get_expensive_model()
+        temperature = 0.3  # More creative for complex cases
+    
+    # Use LLM reasoning for ALL cases (agentic behavior)
     llm_service = get_llm_service()
     llm = llm_service.get_structured_output_llm_instance(
-        model_name=get_expensive_model(),
+        model_name=model_name,
         schema=ReasoningOutput,
-        temperature=0.3  # Moderate temperature for creative reasoning
+        temperature=temperature
     )
     
     lc_messages = llm_service.convert_messages(messages)
@@ -154,9 +157,7 @@ async def reasoning_node(state: AgentState) -> AgentState:
         # Self-reflection fields
         "evidence_quality": response.evidence_quality,
         "conflicting_evidence": response.conflicting_evidence,
-        "needs_more_data": response.needs_more_data,
-        "recommended_next_steps": response.recommended_next_steps,
-        "reasoning_trace": response.reasoning_trace
+        "needs_more_data": response.needs_more_data
     }
     
     # Update confidence tracking

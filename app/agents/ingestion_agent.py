@@ -36,10 +36,6 @@ class IngestionOutput(BaseModel):
         ..., 
         description="Cleaned, normalized version of the user query"
     )
-    entities_found: List[str] = Field(
-        default_factory=list,
-        description="List of entity types successfully extracted (e.g., ['order_id', 'zone_id'])"
-    )
     confidence: float = Field(
         ..., 
         ge=0.0, 
@@ -106,14 +102,23 @@ async def ingestion_node(state: AgentState) -> AgentState:
         state["confidence_scores"] = {}
     state["confidence_scores"]["ingestion"] = response.confidence
     
+    # Derive entities_found from extracted fields for logging
+    entities_found = []
+    if response.order_id:
+        entities_found.append("order_id")
+    if response.zone_id:
+        entities_found.append("zone_id")
+    if response.restaurant_id:
+        entities_found.append("restaurant_id")
+    
     # Emit phase event with entity details
-    entities_str = ", ".join(response.entities_found) if response.entities_found else "none"
+    entities_str = ", ".join(entities_found) if entities_found else "none"
     emit_phase_event(
         state, 
         "ingestion", 
         f"Extracted entities: {entities_str} (confidence: {response.confidence:.2f})",
         metadata={
-            "entities": response.entities_found,
+            "entities": entities_found,
             "confidence": response.confidence,
             "order_id": response.order_id
         }
