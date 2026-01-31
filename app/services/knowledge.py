@@ -211,7 +211,7 @@ async def ingest_file(
         
         # Prepare documents for indexing with full metadata and filters
         total_chunks = len(processed_content.chunks)
-        created_date = datetime.utcnow().isoformat()
+        created_at = datetime.now(timezone.utc).isoformat()
         
         documents = []
         for idx, (chunk, embedding) in enumerate(zip(processed_content.chunks, embeddings)):
@@ -225,17 +225,14 @@ async def ingest_file(
                 "issue_type": filters.issue_type,  # Array of strings
                 "priority": filters.priority.value,
                 "doc_weight": filters.doc_weight,
-                # Existing metadata
+                # Metadata
                 "metadata": {
                     "file_id": file_id,
                     "chunk_index": chunk.chunk_index,
                     "chunk_type": chunk.chunk_type,
                     "filename": filename,
                     "total_chunks": total_chunks,
-                    "created_date": created_date,
-                    "created_at": created_date,  # Backward compatibility
-                    "uploader_persona": uploader_persona,  # Store who uploaded this
-                    "uploader_subcategory": uploader_subcategory if uploader_persona == 'end_customer' else None,
+                    "created_at": created_at
                 }
             })
         

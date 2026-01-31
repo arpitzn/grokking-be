@@ -40,39 +40,37 @@ async def search_policies(query: str, filters: Dict, top_k: int) -> PolicyEviden
     })
     
     try:
-        # Mock implementation for hackathon
+        from app.infra.elasticsearch import get_elasticsearch_client
+        
+        es_client = await get_elasticsearch_client()
+        results = await es_client.search_policies(query, filters, top_k)
+        
+        # Transform results to match expected format
+        policy_results = []
+        for r in results:
+            policy_results.append({
+                "file_id": r.get("file_id"),
+                "filename": r.get("filename", ""),
+                "content": r.get("content", ""),
+                "category": r.get("category"),
+                "priority": r.get("priority"),
+                "issue_type": r.get("issue_type", []),
+                "score": r.get("score", 0.0)
+            })
+        
         policy_data = {
             "query": query,
-            "results": [
-                {
-                    "policy_id": "POL-REFUND-001",
-                    "title": "Refund Policy - Food Quality Issues",
-                    "content": "Customers are eligible for a full refund if food quality issues are reported within 2 hours of delivery...",
-                    "relevance_score": 0.92,
-                    "document_type": "policy",
-                    "section": "refunds",
-                    "effective_date": "2025-01-01"
-                },
-                {
-                    "policy_id": "POL-REFUND-002",
-                    "title": "Refund Policy - Delivery Delays",
-                    "content": "For delivery delays exceeding 45 minutes, customers may request a partial refund...",
-                    "relevance_score": 0.85,
-                    "document_type": "policy",
-                    "section": "refunds",
-                    "effective_date": "2025-01-01"
-                }
-            ],
-            "total_results": 2
+            "results": policy_results,
+            "total_results": len(policy_results)
         }
         
         result = PolicyEvidenceEnvelope(
             source="elasticsearch",
             entity_refs=[],
             freshness=datetime.now(timezone.utc),
-            confidence=0.90,
+            confidence=0.90 if policy_results else 0.0,
             data=policy_data,
-            gaps=[],
+            gaps=[] if policy_results else ["no_policies_found"],
             provenance={"query": query, "top_k": top_k, "filters": filters},
             tool_result=ToolResult(status=ToolStatus.SUCCESS, data=policy_data)
         )
@@ -106,7 +104,7 @@ async def search_policies(query: str, filters: Dict, top_k: int) -> PolicyEviden
 class SearchPoliciesInput(BaseModel):
     """Input schema for search_policies tool"""
     query: str = Field(description="Search query string for policy documents")
-    filters: Dict = Field(default={}, description="Filters dictionary (e.g., {'issue_type': 'refund'})")
+    filters: Dict = Field(default={}, description="Filters dictionary (e.g., {'priority': 'high', 'category': 'policy', 'issue_type': ['refund']})")
     top_k: int = Field(default=5, description="Number of top results to return")
 
 
