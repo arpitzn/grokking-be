@@ -6,17 +6,17 @@ import logging
 import time
 
 from app.agent.graph import get_graph
-from app.agent.state import AgentState
+from app.agent.state import create_initial_state
 from app.infra.guardrails import get_guardrails_manager
 from app.infra.langfuse_callback import langfuse_handler, langfuse
 from app.models.schemas import CaseRequest
 from app.services.conversation import create_conversation, insert_message
+from app.services.event_streamer import EventStreamer
 from app.utils.logging_utils import (
     log_business_milestone,
     log_error_with_context,
     log_request_start,
 )
-from app.utils.tool_observability import get_pending_events
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
@@ -131,35 +131,12 @@ async def chat_stream(request: CaseRequest):
 
     async def event_generator():
         """Generate SSE events with Chain-of-Thought streaming and custom UI events"""
+        # Initialize streamer with debug mode from request
+        streamer = EventStreamer(debug_mode=request.debug_mode or False)
+        
         try:
             # Initialize state with new AgentState structure
-            initial_state: AgentState = {
-                "case": {
-                    "persona": request.persona or "customer",
-                    "channel": request.channel or "web",
-                    "raw_text": request.message,
-                    "user_id": request.user_id,
-                    "conversation_id": conversation_id,
-                    "order_id": None,
-                    "customer_id": request.user_id,
-                    "zone_id": None,
-                    "restaurant_id": None,
-                    "locale": "en-US",
-                },
-                "intent": {},
-                "plan": {},
-                "evidence": {},
-                "retrieval_status": {},
-                "analysis": {},
-                "guardrails": {},
-                "final_response": "",
-                "handover_packet": None,
-                "working_memory": [],
-                "conversation_summary": None,
-                "trace_events": [],
-                "cot_trace": [],
-                "messages": [],  # Internal subgraph state for LLM iterations
-            }
+            initial_state = create_initial_state(request, conversation_id)
 
             # Build LangGraph config with callbacks and metadata
             langfuse_config = {
@@ -176,17 +153,11 @@ async def chat_stream(request: CaseRequest):
             # Get graph
             graph = get_graph()
 
-            # Track state for streaming
-            seen_cot_count = 0
-            full_response = ""
-            last_evidence_count = {"mongo": 0, "policy": 0, "memory": 0}
-
             # Stream graph execution with callbacks
             async for chunk in graph.astream(initial_state, config=langfuse_config):
                 # Stream tool observability events
-                tool_events = get_pending_events()
-                for event in tool_events:
-                    yield f"data: {json.dumps({'event': 'tool_event', 'type': event['type'], 'payload': event['payload']})}\n\n"
+                async for event in streamer.stream_tool_events():
+                    yield event
 
                 if isinstance(chunk, dict):
                     # LangGraph returns state updates per node
@@ -199,85 +170,29 @@ async def chat_stream(request: CaseRequest):
                             details={"conversation_id": conversation_id},
                         )
 
-                        if not isinstance(node_output, dict):
-                            continue
-
-                        # Stream CoT trace entries
-                        if "cot_trace" in node_output:
-                            cot_trace = node_output["cot_trace"]
-                            for entry in cot_trace[seen_cot_count:]:
-                                yield f"data: {json.dumps({'event': 'thinking', 'phase': entry.get('phase'), 'turn': entry.get('turn', 1), 'content': entry.get('content')})}\n\n"
-                            seen_cot_count = len(cot_trace)
-
-                        # Stream evidence cards as they appear
-                        if "evidence" in node_output:
-                            evidence = node_output["evidence"]
-                            for source in ["mongo", "policy", "memory"]:
-                                if source in evidence:
-                                    new_evidence = evidence[source][last_evidence_count[source]:]
-                                    for ev in new_evidence:
-                                        yield f"data: {json.dumps({'event': 'evidence_card', 'source': source, 'data': ev})}\n\n"
-                                    last_evidence_count[source] = len(evidence[source])
-
-                        # Stream hypothesis updates from reasoning
-                        if node_name == "reasoning" and "analysis" in node_output:
-                            analysis = node_output["analysis"]
-                            hypotheses = analysis.get("hypotheses", [])
-                            for hyp in hypotheses:
-                                yield f"data: {json.dumps({'event': 'hypothesis_update', 'hypothesis': hyp})}\n\n"
-
-                        # Stream refund recommendation if applicable
-                        if node_name == "reasoning" and "analysis" in node_output:
-                            analysis = node_output["analysis"]
-                            action_candidates = analysis.get("action_candidates", [])
-                            for action in action_candidates:
-                                if "refund" in action.get("action", "").lower():
-                                    yield f"data: {json.dumps({'event': 'refund_recommendation', 'recommended': True, 'rationale': action.get('rationale', '')})}\n\n"
-
-                        # Stream incident banner if safety flags present
-                        if "intent" in node_output:
-                            intent = node_output["intent"]
-                            safety_flags = intent.get("safety_flags", [])
-                            if safety_flags:
-                                yield f"data: {json.dumps({'event': 'incident_banner', 'severity': intent.get('severity', 'medium'), 'flags': safety_flags})}\n\n"
-
-                        # Stream final response from response_synthesis
+                        # Stream node events
+                        async for event in streamer.stream_node(node_name, node_output):
+                            yield event
+                        
+                        # Log response generation milestone
                         if node_name == "response_synthesis" and "final_response" in node_output:
-                            response_text = node_output["final_response"]
-
                             log_business_milestone(
                                 logger,
                                 "response_generation_complete",
                                 user_id=request.user_id,
                                 details={
                                     "conversation_id": conversation_id,
-                                    "response_length": len(response_text),
+                                    "response_length": len(node_output["final_response"]),
                                     "duration_ms": (time.time() - start_time) * 1000,
                                 },
                             )
 
-                            yield f"data: {json.dumps({'event': 'thinking', 'phase': 'generating', 'content': 'Composing response...'})}\n\n"
-
-                            # Stream response token-by-token
-                            chunk_size = 10
-                            for i in range(0, len(response_text), chunk_size):
-                                delta = response_text[i : i + chunk_size]
-                                full_response += delta
-                                yield f"data: {json.dumps({'content': delta})}\n\n"
-                                await asyncio.sleep(0.05)
-
-                        # Stream handover packet from human_escalation
-                        if node_name == "human_escalation" and "handover_packet" in node_output:
-                            handover = node_output["handover_packet"]
-                            yield f"data: {json.dumps({'event': 'escalation', 'escalation_id': handover.get('escalation_id'), 'message': 'Your case has been escalated to a human agent'})}\n\n"
-                            full_response = "Your case has been escalated to a human agent. You will be contacted shortly."
-
             # Insert assistant message
-            if full_response:
+            if streamer.full_response:
                 await insert_message(
                     conversation_id=conversation_id,
                     role="assistant",
-                    content=full_response,
+                    content=streamer.full_response,
                 )
 
             # Send completion event
@@ -288,10 +203,10 @@ async def chat_stream(request: CaseRequest):
                 details={
                     "conversation_id": conversation_id,
                     "total_duration_ms": (time.time() - start_time) * 1000,
-                    "response_length": len(full_response),
+                    "response_length": len(streamer.full_response),
                 },
             )
-            yield f"data: {json.dumps({'status': 'completed'})}\n\n"
+            yield streamer.completion()
 
         except Exception as e:
             log_error_with_context(
@@ -305,11 +220,10 @@ async def chat_stream(request: CaseRequest):
                     "duration_ms": (time.time() - start_time) * 1000,
                 },
             )
-            error_data = json.dumps({"error": str(e), "status": "error"})
-            yield f"data: {error_data}\n\n"
+            yield streamer.error(e)
         finally:
             # Ensure stream is closed
-            yield "data: [DONE]\n\n"
+            yield streamer.done()
 
     return StreamingResponse(
         event_generator(),

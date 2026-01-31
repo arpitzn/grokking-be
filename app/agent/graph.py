@@ -20,70 +20,23 @@ from langgraph.types import Send
 logger = logging.getLogger(__name__)
 
 
-def retrieval_complete(state: AgentState) -> bool:
-    """
-    Checks if all planned retrievals have completed (success or failure).
-    Reasoning node must NOT execute until this returns True.
-    """
-    retrieval_status = state.get("retrieval_status", {})
-    plan = state.get("plan", {})
-    tool_selection = plan.get("tool_selection", [])
-    
-    # Map tool names to retrieval types
-    retrieval_types = set()
-    for tool in tool_selection:
-        if "mongo" in tool or "order" in tool or "customer" in tool or "zone" in tool or "restaurant" in tool or "incident" in tool or "case" in tool:
-            retrieval_types.add("mongo")
-        elif "policy" in tool or "elastic" in tool or "search" in tool or "lookup" in tool:
-            retrieval_types.add("policy")
-        elif "memory" in tool or "mem0" in tool or "episodic" in tool or "semantic" in tool:
-            retrieval_types.add("memory")
-    
-    # Check all planned retrievals completed
-    for retrieval_type in retrieval_types:
-        if not retrieval_status.get(retrieval_type, {}).get("completed", False):
-            return False
-    
-    # If no retrievals planned, allow reasoning to proceed
-    if not retrieval_types:
-        return True
-    
-    return True
-
-
 def route_to_retrievals(state: AgentState):
     """
-    Fan-out: Activate retrieval agents based on planner's tool_selection.
+    Agentic fan-out: Planner decides which agents to activate.
+    This function dispatches based on explicit agent names.
     Returns list of Send() for parallel execution in same super-step.
     """
     plan = state.get("plan", {})
-    tool_selection = plan.get("tool_selection", [])
+    agents_to_activate = plan.get("agents_to_activate", [])
     
     results = []
     
-    # Determine which retrieval agents to activate
-    needs_mongo = any(
-        "mongo" in t or "order" in t or "customer" in t or "zone" in t or 
-        "restaurant" in t or "incident" in t or "case" in t
-        for t in tool_selection
-    )
-    needs_policy = any(
-        "policy" in t or "elastic" in t or "search" in t or "lookup" in t
-        for t in tool_selection
-    )
-    needs_memory = any(
-        "memory" in t or "mem0" in t or "episodic" in t or "semantic" in t
-        for t in tool_selection
-    )
+    # Direct dispatch - no inference needed
+    for agent_name in agents_to_activate:
+        if agent_name in ["mongo_retrieval", "policy_rag", "memory_retrieval"]:
+            results.append(Send(agent_name, state))
     
-    if needs_mongo:
-        results.append(Send("mongo_retrieval", state))
-    if needs_policy:
-        results.append(Send("policy_rag", state))
-    if needs_memory:
-        results.append(Send("memory_retrieval", state))
-    
-    # If no retrievals needed, go directly to reasoning
+    # If no agents selected, go directly to reasoning
     if not results:
         results.append(Send("reasoning", state))
     

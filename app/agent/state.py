@@ -1,7 +1,21 @@
 """Agent state definition for LangGraph - Food Delivery Domain"""
 
+from enum import Enum
 from operator import add
 from typing import Annotated, Any, Dict, List, Optional, TypedDict
+
+# Forward reference to avoid circular import
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.schemas import CaseRequest
+
+
+class EventClass(str, Enum):
+    """Event classification for UI filtering"""
+    USER = "user"              # Final output, escalations, status
+    EXPLAINABILITY = "explainability"  # CoT summaries, evidence, hypotheses
+    DEBUG = "debug"            # Tool calls, internal state changes
 
 
 def merge_dicts(left: Dict, right: Dict) -> Dict:
@@ -39,11 +53,11 @@ class AgentState(TypedDict):
     State slices:
     - Input: case (persona, channel, order_id, customer_id, zone_id, raw_text, locale)
     - Interpretation: intent (issue_type, severity, SLA_risk, safety_flags), plan (tool_selection, initial_route)
-    - Evidence: evidence (mongo[], policy[], memory[]), retrieval_status (completion tracking)
+    - Evidence: evidence (mongo[], policy[], memory[])
     - Decision: analysis (hypotheses[], action_candidates[], confidence, gaps), guardrails (compliance, routing_decision FINAL)
     - Outputs: final_response, handover_packet
     - Working Memory: working_memory (last 10 messages), conversation_summary (async summaries)
-    - Observability: trace_events, cot_trace
+    - Observability: events (unified event stream), phase_status (phase completion tracking)
     """
     
     # Input slice - PARALLEL UPDATES (subgraphs return full state)
@@ -55,11 +69,13 @@ class AgentState(TypedDict):
     
     # Evidence slice - PARALLEL UPDATES from 3 retrieval subgraphs
     evidence: Annotated[Dict[str, List[Dict]], merge_dicts]  # mongo[], policy[], memory[]
-    retrieval_status: Annotated[Dict[str, Any], merge_dicts]  # tracks completion/failure of parallel retrievals
     
     # Decision slice - may be updated concurrently if reasoning runs multiple times
-    analysis: Annotated[Dict[str, Any], take_right]  # hypotheses[], action_candidates[], confidence, gaps
+    analysis: Annotated[Dict[str, Any], take_right]  # hypotheses[], action_candidates[], confidence, gaps, self-reflection fields
     guardrails: Annotated[Dict[str, Any], take_right]  # compliance_result, routing_decision (auto/human - FINAL), confidence_gate_result
+    
+    # Confidence tracking - PARALLEL UPDATES from all agents
+    confidence_scores: Annotated[Dict[str, float], merge_dicts]  # Per-agent confidence scores (ingestion, intent_classification, reasoning, overall)
     
     # Outputs - may be updated by response_synthesis or human_escalation
     final_response: Annotated[str, take_right]
@@ -74,8 +90,96 @@ class AgentState(TypedDict):
     turn_number: Annotated[int, take_right]  # Current turn in conversation
     
     # Observability - PARALLEL UPDATES from all nodes
-    trace_events: Annotated[List[Dict[str, Any]], add]
-    cot_trace: Annotated[List[Dict[str, Any]], add]  # turn can be int, phase/content are str
+    events: Annotated[List[Dict[str, Any]], add]  # Unified event stream (replaces trace_events and cot_trace)
+    phase_status: Annotated[Dict[str, str], take_right]  # Track phase completion for summary generation
     
     # Internal subgraph state - used by parallel retrieval subgraphs for LLM iterations
     messages: Annotated[List, add]  # LangChain messages for agentic tool calling
+
+
+def emit_phase_event(
+    state: AgentState, 
+    phase: str, 
+    content: str,
+    event_class: str = "explainability",
+    metadata: Optional[Dict[str, Any]] = None
+) -> None:
+    """
+    Centralized event emission - prevents code duplication across agents.
+    
+    Args:
+        state: Current agent state
+        phase: Phase name (ingestion, planning, searching, reasoning, etc.)
+        content: Human-readable summary of what happened
+        event_class: Classification (user, explainability, debug)
+        metadata: Optional additional data (tool counts, evidence counts, etc.)
+    
+    Example:
+        emit_phase_event(state, "planning", 
+            "Selected 3 retrieval agents for evidence gathering",
+            metadata={"agents": ["mongo", "policy", "memory"]})
+    """
+    turn = state.get("turn_number", 1)
+    
+    if "events" not in state:
+        state["events"] = []
+    
+    event = {
+        "phase": phase,
+        "turn": turn,
+        "content": content,
+        "class": event_class,
+        "timestamp": None  # Set by streamer
+    }
+    
+    if metadata:
+        event["metadata"] = metadata
+    
+    state["events"].append(event)
+    
+    # Track phase completion for summary generation
+    if "phase_status" not in state:
+        state["phase_status"] = {}
+    state["phase_status"][phase] = "completed"
+
+
+def create_initial_state(request: "CaseRequest", conversation_id: str) -> AgentState:
+    """
+    Create initial AgentState from a CaseRequest and conversation_id.
+    
+    Args:
+        request: CaseRequest containing user message and metadata
+        conversation_id: Conversation identifier
+        
+    Returns:
+        Initialized AgentState with default values
+    """
+    return {
+        "case": {
+            "persona": request.persona or "customer",
+            "channel": request.channel or "web",
+            "raw_text": request.message,
+            "user_id": request.user_id,
+            "conversation_id": conversation_id,
+            "order_id": None,
+            "customer_id": request.user_id,
+            "zone_id": None,
+            "restaurant_id": None,
+            "locale": "en-US",
+        },
+        "intent": {},
+        "plan": {},
+        "evidence": {},
+        "analysis": {},
+        "guardrails": {},
+        "final_response": "",
+        "handover_packet": None,
+        "working_memory": [],
+        "conversation_summary": None,
+        "conversation_history": [],
+        "turn_number": 1,
+        "events": [],
+        "phase_status": {},
+        "confidence_scores": {},  # Initialize confidence tracking
+        "messages": [],  # Internal subgraph state for LLM iterations
+    }
