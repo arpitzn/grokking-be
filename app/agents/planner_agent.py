@@ -69,7 +69,7 @@ async def planner_node(state: AgentState) -> AgentState:
             "sla_risk": str(intent.get('SLA_risk', False)),
             "safety_flags": str(intent.get('safety_flags', [])),
             "order_id": case.get('order_id', 'none'),
-            "customer_id": case.get('customer_id', 'none'),
+            "user_id": case.get('user_id', 'none'),  # Changed from customer_id
             "zone_id": case.get('zone_id', 'none'),
             "restaurant_id": case.get('restaurant_id', 'none'),
             "history_context": history_context

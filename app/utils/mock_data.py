@@ -41,10 +41,12 @@ def generate_mock_order_timeline(order_id: str) -> Dict[str, Any]:
     }
 
 
-def generate_mock_customer_profile(customer_id: str) -> Dict[str, Any]:
-    """Generate mock customer operations profile"""
+def generate_mock_user_profile(user_id: str) -> Dict[str, Any]:
+    """Generate mock user operations profile (renamed from customer)"""
     return {
-        "customer_id": customer_id,
+        "user_id": user_id,  # Changed from customer_id
+        "persona": random.choice(["customer", "area_manager", "customer_care_rep"]),
+        "sub_category": random.choice(["platinum", "standard", "high_risk"]) if random.choice([True, False]) else None,
         "total_orders": random.randint(10, 100),
         "lifetime_value": round(random.uniform(200, 2000), 2),
         "avg_order_value": round(random.uniform(20, 50), 2),
@@ -52,10 +54,14 @@ def generate_mock_customer_profile(customer_id: str) -> Dict[str, Any]:
         "refund_rate": round(random.uniform(0, 0.1), 3),
         "last_order_date": (datetime.now(timezone.utc) - timedelta(days=random.randint(0, 30))).isoformat(),
         "preferred_cuisines": random.sample(["Italian", "Chinese", "Mexican", "Indian", "Thai"], k=3),
-        "avg_rating_given": round(random.uniform(3.5, 5.0), 1),
-        "complaint_count": random.randint(0, 3),
         "vip_status": random.choice([True, False])
     }
+
+
+# Backward compatibility alias
+def generate_mock_customer_profile(customer_id: str) -> Dict[str, Any]:
+    """Backward compatibility alias - use generate_mock_user_profile instead"""
+    return generate_mock_user_profile(customer_id)
 
 
 def generate_mock_zone_metrics(zone_id: str) -> Dict[str, Any]:
@@ -66,8 +72,8 @@ def generate_mock_zone_metrics(zone_id: str) -> Dict[str, Any]:
         "total_orders": random.randint(500, 2000),
         "avg_delivery_time_minutes": random.randint(25, 45),
         "on_time_delivery_rate": round(random.uniform(0.75, 0.95), 2),
-        "incident_count": random.randint(5, 30),
-        "incident_rate": round(random.uniform(0.005, 0.02), 3),
+        "support_ticket_count": random.randint(5, 30),  # Changed from incident_count
+        "support_ticket_rate": round(random.uniform(0.005, 0.02), 3),  # Changed from incident_rate
         "active_drivers": random.randint(20, 60),
         "avg_restaurant_prep_time": random.randint(15, 25),
         "weather_alert": random.choice([True, False]),

@@ -47,7 +47,7 @@ def create_memory_retrieval_subgraph():
         system_prompt, user_prompt = get_prompts(
             "memory_retrieval_agent",
             {
-                "customer_id": case.get("customer_id") or case.get("user_id", "N/A"),
+                "user_id": case.get("user_id", "N/A"),  # Changed from customer_id
                 "issue_type": intent.get("issue_type", "unknown"),
                 "severity": intent.get("severity", "low"),
                 "raw_text": case.get("raw_text", "")

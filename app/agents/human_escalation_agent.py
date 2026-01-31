@@ -29,7 +29,7 @@ async def human_escalation_node(state: AgentState) -> AgentState:
     # Create handover packet
     handover_packet = {
         "case_id": case.get("conversation_id", ""),
-        "customer_id": case.get("customer_id", ""),
+        "user_id": case.get("user_id", ""),  # Changed from customer_id
         "order_id": case.get("order_id"),
         "issue_type": intent.get("issue_type", "unknown"),
         "severity": intent.get("severity", "low"),

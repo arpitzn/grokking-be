@@ -19,7 +19,7 @@ Available tools:
 - get_case_context: Fetch previous case context
 
 Instructions:
-1. Analyze the case context (order_id, customer_id, zone_id)
+1. Analyze the case context (order_id, user_id, zone_id)
 2. Call tools that are relevant to the issue type
 3. If a tool fails, try alternative tools
 4. Stop when you have sufficient evidence OR after 3 tool calls
@@ -27,7 +27,7 @@ Instructions:
 IMPORTANT: You decide which tools to call based on the context.""",
         
         "user_prompt": """Order ID: {order_id}
-Customer ID: {customer_id}
+User ID: {user_id}
 Zone ID: {zone_id}
 Restaurant ID: {restaurant_id}
 
@@ -72,7 +72,7 @@ Instructions:
 3. If results are sparse, try alternative query formulations
 4. Stop when you have relevant memories OR after 3 tool calls""",
         
-        "user_prompt": """Customer ID: {customer_id}
+        "user_prompt": """User ID: {user_id}
 Issue: {issue_type} (severity: {severity})
 Query: {raw_text}
 
@@ -146,7 +146,7 @@ Intent classification:
 
 Extracted entities:
 - Order ID: {order_id}
-- Customer ID: {customer_id}
+- User ID: {user_id}
 - Zone ID: {zone_id}
 - Restaurant ID: {restaurant_id}
 {history_context}
@@ -186,7 +186,7 @@ Case Context:
 - Severity: {severity}
 - SLA Risk: {sla_risk}
 - Order ID: {order_id}
-- Customer ID: {customer_id}
+- User ID: {user_id}
 
 Evidence from MongoDB ({mongo_count} items):
 {mongo_evidence}
