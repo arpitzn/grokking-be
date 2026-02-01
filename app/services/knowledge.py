@@ -1,7 +1,7 @@
 """Knowledge service for RAG ingestion and retrieval"""
 from app.infra.elasticsearch import ElasticsearchDep, ElasticsearchClient
 from app.infra.llm import get_llm_service
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 # from app.infra.llm import get_llm_client
