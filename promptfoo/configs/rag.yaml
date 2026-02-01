@@ -1,0 +1,70 @@
+# RAG Pipeline Evaluation Configuration
+# Tests retrieval quality with different top_k and embedding models
+
+description: "RAG Retrieval Quality Evaluation"
+
+providers:
+  - id: "python:promptfoo/providers/rag_provider.py"
+    label: "top_k=3"
+    config:
+      top_k: 3
+      embedding_model: text-embedding-3-small
+
+  - id: "python:promptfoo/providers/rag_provider.py"
+    label: "top_k=5"
+    config:
+      top_k: 5
+      embedding_model: text-embedding-3-small
+
+prompts:
+  - "{{query}}"
+
+tests:
+  - description: "Retrieval - Returns chunks"
+    vars:
+      query: "What are the company objectives?"
+      user_id: "test_user"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return typeof result.chunk_count === 'number';
+
+  - description: "Retrieval - Respects top_k"
+    vars:
+      query: "Tell me about the project timeline"
+      user_id: "test_user"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.chunk_count <= 5;
+
+  - description: "Retrieval - Handles empty results"
+    vars:
+      query: "purple elephants dancing"
+      user_id: "nonexistent_user"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return Array.isArray(result.chunks);
+
+  - description: "Retrieval - Short query"
+    vars:
+      query: "help"
+      user_id: "test_user"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return !result.error;
+
+evaluateOptions:
+  maxConcurrency: 2
+  showProgressBar: true
+  cache: true

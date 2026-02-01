@@ -1,0 +1,118 @@
+# PromptFoo Main Configuration
+# Hackathon AI Agent Evaluation Suite
+# Run with: npx promptfoo eval
+
+description: "Hackathon AI Agent - Planner Evaluation"
+
+# Evaluation options
+evaluateOptions:
+  maxConcurrency: 4
+  showProgressBar: true
+  cache: true
+
+# Provider - Planner with GPT-3.5
+providers:
+  - id: "python:promptfoo/providers/planner_provider.py"
+    label: "Planner (GPT-3.5)"
+    config:
+      model: gpt-3.5-turbo
+      temperature: 0.3
+
+# Simple inline prompt that passes query to provider
+prompts:
+  - "{{query}}"
+
+# Test cases for planner classification
+tests:
+  # Internal RAG queries (should classify as "internal")
+  - description: "Internal - Director meeting"
+    vars:
+      query: "What did our director say in yesterday's meeting?"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'internal';
+
+  - description: "Internal - Q4 report"
+    vars:
+      query: "What are the key findings in our Q4 report?"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'internal';
+
+  - description: "Internal - Company policy"
+    vars:
+      query: "What is our company policy on remote work?"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'internal';
+
+  # External search queries (should classify as "external")
+  - description: "External - President"
+    vars:
+      query: "Who was the President of India in 2020?"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'external';
+
+  - description: "External - Capital"
+    vars:
+      query: "What is the capital of France?"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'external';
+
+  - description: "External - Famous person"
+    vars:
+      query: "Who is Elon Musk?"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'external';
+
+  # Conversational queries (should classify as "none")
+  - description: "Conversational - Greeting"
+    vars:
+      query: "Hello!"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'none';
+
+  - description: "Conversational - Thanks"
+    vars:
+      query: "Thanks, that was helpful!"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'none';
+
+  - description: "Conversational - Goodbye"
+    vars:
+      query: "Goodbye!"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'none';

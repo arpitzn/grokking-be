@@ -1,0 +1,267 @@
+# RAG Pipeline Test Cases
+# Tests retrieval quality, relevance, and recall
+
+description: "RAG Retrieval Quality Tests"
+
+# Default test configuration
+defaultTest:
+  assert:
+    - type: is-json
+      description: "Response should be valid JSON"
+
+tests:
+  # =============================================================================
+  # BASIC RETRIEVAL TESTS
+  # =============================================================================
+
+  - description: "Retrieval - Returns expected number of chunks"
+    vars:
+      query: "What are the company objectives?"
+      user_id: "test_user"
+    options:
+      config:
+        top_k: 3
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.chunk_count <= 3;
+        description: "Should return at most top_k chunks"
+
+  - description: "Retrieval - Returns chunks with content"
+    vars:
+      query: "Tell me about the project timeline"
+      user_id: "test_user"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          if (result.chunks && result.chunks.length > 0) {
+            return result.chunks.every(c => c.content && c.content.length > 0);
+          }
+          return true; // Allow empty results
+        description: "All returned chunks should have content"
+
+  - description: "Retrieval - Chunks have scores"
+    vars:
+      query: "Budget allocation for next year"
+      user_id: "test_user"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          if (result.chunks && result.chunks.length > 0) {
+            return result.chunks.every(c => typeof c.score === 'number');
+          }
+          return true;
+        description: "Chunks should have numeric scores"
+
+  - description: "Retrieval - Scores are sorted descending"
+    vars:
+      query: "Employee benefits and policies"
+      user_id: "test_user"
+    options:
+      config:
+        top_k: 5
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          if (result.chunks && result.chunks.length > 1) {
+            for (let i = 1; i < result.chunks.length; i++) {
+              if (result.chunks[i].score > result.chunks[i-1].score) {
+                return false;
+              }
+            }
+          }
+          return true;
+        description: "Chunks should be sorted by score descending"
+
+  # =============================================================================
+  # TOP_K PARAMETER TESTS
+  # =============================================================================
+
+  - description: "Top_k=1 - Returns single best chunk"
+    vars:
+      query: "Main product features"
+      user_id: "test_user"
+    options:
+      config:
+        top_k: 1
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.chunk_count <= 1;
+
+  - description: "Top_k=5 - Returns more chunks"
+    vars:
+      query: "All available services"
+      user_id: "test_user"
+    options:
+      config:
+        top_k: 5
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.top_k === 5;
+        description: "Should respect top_k configuration"
+
+  - description: "Top_k=10 - Maximum retrieval"
+    vars:
+      query: "Complete documentation overview"
+      user_id: "test_user"
+    options:
+      config:
+        top_k: 10
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.chunk_count <= 10;
+
+  # =============================================================================
+  # EMBEDDING MODEL TESTS
+  # =============================================================================
+
+  - description: "Embedding - text-embedding-3-small"
+    vars:
+      query: "Technical specifications"
+      user_id: "test_user"
+    options:
+      config:
+        embedding_model: "text-embedding-3-small"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.embedding_model === "text-embedding-3-small";
+
+  - description: "Embedding - text-embedding-3-large"
+    vars:
+      query: "Detailed analysis report"
+      user_id: "test_user"
+    options:
+      config:
+        embedding_model: "text-embedding-3-large"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.embedding_model === "text-embedding-3-large";
+
+  # =============================================================================
+  # RELEVANCE TESTS (Semantic matching)
+  # =============================================================================
+
+  - description: "Relevance - Synonym matching"
+    vars:
+      query: "revenue and income projections"
+      user_id: "test_user"
+      expected_topics:
+        - "financial"
+        - "earnings"
+        - "profit"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Just verify we get a valid response
+          return !result.error;
+        description: "Should handle synonym queries"
+
+  - description: "Relevance - Question to statement matching"
+    vars:
+      query: "What is the mission of the company?"
+      user_id: "test_user"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return typeof result.chunk_count === 'number';
+
+  - description: "Relevance - Technical query"
+    vars:
+      query: "API authentication mechanisms and security protocols"
+      user_id: "test_user"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return !result.error;
+
+  # =============================================================================
+  # NO RESULTS HANDLING
+  # =============================================================================
+
+  - description: "No results - Unrelated query"
+    vars:
+      query: "purple elephants dancing on mars"
+      user_id: "nonexistent_user_12345"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Should gracefully handle no results
+          return result.chunk_count >= 0;
+        description: "Should handle queries with no matching documents"
+
+  - description: "No results - Empty user"
+    vars:
+      query: "Any documents"
+      user_id: "empty_user_no_docs"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return Array.isArray(result.chunks);
+        description: "Should return empty array for user with no documents"
+
+  # =============================================================================
+  # EDGE CASES
+  # =============================================================================
+
+  - description: "Edge - Very short query"
+    vars:
+      query: "help"
+      user_id: "test_user"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return !result.error;
+        description: "Should handle very short queries"
+
+  - description: "Edge - Very long query"
+    vars:
+      query: "I need comprehensive information about all aspects of the company including its history, founding members, key milestones, product evolution, market positioning, competitive advantages, customer base demographics, revenue streams, cost structure, organizational hierarchy, management team, board of directors, shareholders, strategic partnerships, and future growth plans"
+      user_id: "test_user"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return !result.error;
+        description: "Should handle very long queries"
+
+  - description: "Edge - Special characters in query"
+    vars:
+      query: "What is the ROI (%) for Q4'23?"
+      user_id: "test_user"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return !result.error;
+        description: "Should handle special characters"
+
+  - description: "Edge - Unicode query"
+    vars:
+      query: "产品信息 and データ"
+      user_id: "test_user"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return !result.error;
+        description: "Should handle unicode characters"

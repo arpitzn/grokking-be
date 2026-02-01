@@ -1,0 +1,82 @@
+# NeMo Guardrails Colang Definitions
+# Custom flows and bot responses for guardrails
+
+# =============================================================================
+# BOT RESPONSE DEFINITIONS
+# =============================================================================
+
+# Response when input is blocked
+define bot refuse to respond
+  "I'm not able to help with that request. I'm designed to be helpful, harmless, and honest. Please feel free to ask me something else, and I'll do my best to assist you!"
+
+# Response when jailbreak is detected
+define bot refuse jailbreak attempt
+  "I'm designed to be helpful, harmless, and honest. Your request appears to ask me to bypass my safety guidelines. I'd be happy to help you with a different question that aligns with my purpose."
+
+# Response for PII detection
+define bot inform pii detected
+  "I noticed your message contains sensitive personal information. For your privacy and security, I'm unable to process messages with such data. Please rephrase your question without including personal details like SSN, credit card numbers, or other sensitive information."
+
+# Response for off-topic questions
+define bot inform off topic
+  "I'm specifically designed to help with company-related questions. This topic seems outside my area of expertise. Is there something about our products or services I can help you with instead?"
+
+# Response when answer is unknown
+define bot inform answer unknown
+  "I don't have enough information to answer that question accurately. Could you provide more context or try rephrasing your question?"
+
+# Response for hallucination warning
+define bot inform answer prone to hallucination
+  "Note: I want to be transparent - I'm not entirely confident about the accuracy of parts of my previous response. Please verify critical information from authoritative sources."
+
+# Response for harmful content in output
+define bot refuse harmful output
+  "I apologize, but I'm not able to provide that information as it may be harmful. Let me try to help you in a different way."
+
+# =============================================================================
+# USER MESSAGE CANONICAL FORMS
+# =============================================================================
+
+define user express greeting
+  "hello"
+  "hi"
+  "hey"
+  "good morning"
+  "good afternoon"
+
+define user express gratitude
+  "thank you"
+  "thanks"
+  "appreciate it"
+  "that's helpful"
+
+define user ask about capabilities
+  "what can you do"
+  "how can you help"
+  "what are your capabilities"
+
+define user ask for clarification
+  "can you explain"
+  "what do you mean"
+  "I don't understand"
+  "clarify please"
+
+# =============================================================================
+# DIALOG FLOWS
+# =============================================================================
+
+# Greeting flow
+define flow greeting
+  user express greeting
+  bot express greeting
+
+define bot express greeting
+  "Hello! How can I help you today?"
+
+# Gratitude flow
+define flow gratitude
+  user express gratitude
+  bot express gratitude response
+
+define bot express gratitude response
+  "You're welcome! Is there anything else I can help you with?"

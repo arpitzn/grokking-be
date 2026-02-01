@@ -1,0 +1,73 @@
+# NeMo Guardrails Configuration
+# Production-ready configuration for PII detection, jailbreak detection,
+# hallucination checking, and custom rules.
+
+models:
+  - type: main
+    engine: openai
+    model: gpt-4
+
+instructions:
+  - type: general
+    content: |
+      You are a helpful AI assistant designed to provide accurate and safe responses.
+      You should refuse to engage with harmful, illegal, or unethical requests.
+      You should not reveal sensitive personal information or help with malicious activities.
+
+rails:
+  input:
+    flows:
+      # Jailbreak and harmful content detection using LLM self-check
+      - self check input
+      # PII detection using Presidio
+      - mask sensitive data on input
+
+  output:
+    flows:
+      # Content safety check for bot responses
+      - self check output
+      # Hallucination detection for RAG responses
+      - self check hallucination
+      # Mask any PII that might appear in output
+      - mask sensitive data on output
+
+  config:
+    # Presidio-based PII Detection Configuration
+    sensitive_data_detection:
+      input:
+        entities:
+          - PERSON
+          - EMAIL_ADDRESS
+          - PHONE_NUMBER
+          - CREDIT_CARD
+          - US_SSN
+          - IP_ADDRESS
+          - US_BANK_NUMBER
+          - IBAN_CODE
+          - US_PASSPORT
+          - US_DRIVER_LICENSE
+        mask_token: "[REDACTED]"
+      output:
+        entities:
+          - PERSON
+          - EMAIL_ADDRESS
+          - PHONE_NUMBER
+          - CREDIT_CARD
+          - US_SSN
+        mask_token: "[REDACTED]"
+
+    # Self-check configuration
+    self_check_input:
+      # Threshold for blocking input (0.0 to 1.0)
+      threshold: 0.5
+
+    self_check_output:
+      # Threshold for blocking output (0.0 to 1.0)
+      threshold: 0.5
+
+    # Hallucination detection configuration
+    hallucination_detection:
+      # Number of alternative responses to generate for comparison
+      num_extra_responses: 2
+      # Agreement threshold for hallucination detection
+      agreement_threshold: 0.5

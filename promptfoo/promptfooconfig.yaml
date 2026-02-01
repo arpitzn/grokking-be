@@ -1,0 +1,97 @@
+# PromptFoo Main Configuration
+# Hackathon AI Agent Evaluation Suite
+
+description: "Hackathon AI Agent - Comprehensive LLM Evaluation Suite"
+
+# Evaluation options
+evaluateOptions:
+  maxConcurrency: 4
+  showProgressBar: true
+  cache: true
+
+# Quick summary of available test suites:
+#
+# Planner Tests:      npx promptfoo eval -c promptfoo/configs/planner.yaml
+# Executor Tests:     npx promptfoo eval -c promptfoo/configs/executor.yaml
+# Guardrails Tests:   npx promptfoo eval -c promptfoo/configs/guardrails.yaml
+# RAG Tests:          npx promptfoo eval -c promptfoo/configs/rag.yaml
+# E2E Tests:          npx promptfoo eval -c promptfoo/configs/e2e.yaml
+#
+# Or run specific component: npx promptfoo eval -c promptfoo/configs/planner.yaml
+
+# Providers for planner evaluation
+providers:
+  - id: "python:promptfoo/providers/planner_provider.py"
+    label: "Planner (GPT-3.5, t=0.3)"
+    config:
+      model: gpt-3.5-turbo
+      temperature: 0.3
+
+  - id: "python:promptfoo/providers/planner_provider.py"
+    label: "Planner (GPT-4, t=0.3)"
+    config:
+      model: gpt-4
+      temperature: 0.3
+
+# Prompts - using inline prompt that passes query to provider
+prompts:
+  - "{{query}}"
+
+# Test cases for planner
+tests:
+  # Internal RAG queries
+  - vars:
+      query: "What did our director say in yesterday's meeting?"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'internal';
+
+  - vars:
+      query: "What are the key findings in our Q4 report?"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'internal';
+
+  # External search queries
+  - vars:
+      query: "Who is the President of India in 2020?"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'external';
+
+  - vars:
+      query: "What is the capital of France?"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'external';
+
+  # Conversational queries
+  - vars:
+      query: "Hello!"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'none';
+
+  - vars:
+      query: "Thanks, that was helpful!"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.knowledge_source === 'none';

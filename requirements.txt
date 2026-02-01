@@ -1,0 +1,54 @@
+# Core Framework
+fastapi==0.128.0
+uvicorn==0.34.0
+pydantic==2.10.6
+pydantic-settings==2.7.1
+
+# LangGraph & LangChain
+langgraph==0.5.4
+langchain==0.3.27
+langchain-core==0.3.72
+langchain-openai==0.3.28
+langchain-community==0.3.27
+langchain-text-splitters==0.3.9
+
+# LLM Providers
+openai>=1.90.0
+
+# Vector Store
+elasticsearch==8.10.0
+
+# Database
+pymongo==4.11
+motor==3.7.0  # Async MongoDB driver
+beanie==1.29.0
+
+# Guardrails
+nemoguardrails==0.20.0
+
+# PII Detection (Presidio) - used by NeMo Guardrails for sensitive data detection
+presidio-analyzer>=2.2.0
+presidio-anonymizer>=2.2.0
+
+# Observability
+langfuse==3.8.1
+
+# Semantic Memory
+mem0ai==1.0.2
+
+# File Processing
+unstructured[pdf,docx]>=0.10.0  # Document extraction
+beautifulsoup4>=4.12.0          # HTML parsing
+Pillow>=10.0.0                  # Image validation
+python-multipart>=0.0.6        # FastAPI multipart support
+
+# Utilities
+python-dotenv==1.0.1
+httpx==0.28.1  # For async HTTP requests
+tenacity==8.2.3  # Retry logic
+tiktoken==0.8.0
+pyyaml==6.0.1  # For loading YAML config files
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
