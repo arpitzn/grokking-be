@@ -1,0 +1,112 @@
+name: "Build & Deploy to EC2"
+
+on:
+  workflow_dispatch:
+    inputs:
+      BRANCH_TO_BUILD:
+        description: 'Branch to build (develop, feature, wip, sprint)'
+        required: true
+        default: 'main'
+
+env:
+  IMAGE_NAME: grokking-be
+  EC2_HOST: 3.6.105.82
+  EC2_USER: ubuntu
+  CONTAINER_NAME: grokking-be
+  CONTAINER_PORT: 8080
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout target branch for build
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.BRANCH_TO_BUILD }}
+          fetch-depth: 0
+
+      - name: Get Git metadata
+        id: gitmeta
+        run: |
+          SHORT_COMMIT_RAW=$(git rev-parse --short HEAD)
+          echo "Raw commit hash: $SHORT_COMMIT_RAW"
+          SHORT_COMMIT_LOWER=$(echo "$SHORT_COMMIT_RAW" | tr '[:upper:]' '[:lower:]')
+          echo "Lowercase commit hash: $SHORT_COMMIT_LOWER"
+          
+          if [[ ! "$SHORT_COMMIT_LOWER" =~ ^[a-z0-9]+$ ]]; then
+            echo "ERROR: Invalid commit hash format: $SHORT_COMMIT_LOWER"
+            exit 1
+          fi
+          
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          echo "TIMESTAMP=${TIMESTAMP}" >> $GITHUB_ENV
+          printf 'SHORT_COMMIT=%s\n' "${SHORT_COMMIT_LOWER}" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=${SHORT_COMMIT_LOWER}-${TIMESTAMP}" >> $GITHUB_ENV
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          echo "🔨 Building Docker image: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
+          docker build -t ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
+                       -t ${{ env.IMAGE_NAME }}:latest .
+          
+          echo "💾 Saving Docker image to tarball..."
+          docker save ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} | gzip > image.tar.gz
+          ls -lh image.tar.gz
+
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/grokking.pem
+          chmod 600 ~/.ssh/grokking.pem
+          ssh-keyscan -H ${{ env.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Copy Docker image to EC2
+        run: |
+          echo "📤 Copying Docker image to EC2..."
+          scp -i ~/.ssh/grokking.pem image.tar.gz ${{ env.EC2_USER }}@${{ env.EC2_HOST }}:/tmp/image.tar.gz
+
+      - name: Deploy on EC2
+        run: |
+          ssh -i ~/.ssh/grokking.pem ${{ env.EC2_USER }}@${{ env.EC2_HOST }} << 'ENDSSH'
+            set -e
+            
+            echo "📦 Loading Docker image..."
+            gunzip -c /tmp/image.tar.gz | docker load
+            
+            echo "🛑 Stopping existing container (if any)..."
+            docker stop ${{ env.CONTAINER_NAME }} 2>/dev/null || true
+            docker rm ${{ env.CONTAINER_NAME }} 2>/dev/null || true
+            
+            echo "🚀 Starting new container..."
+            docker run -d \
+              --name ${{ env.CONTAINER_NAME }} \
+              --restart unless-stopped \
+              -p ${{ env.CONTAINER_PORT }}:${{ env.CONTAINER_PORT }} \
+              ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+            
+            echo "✅ Container started successfully!"
+            docker ps | grep ${{ env.CONTAINER_NAME }}
+            
+            echo "🧹 Cleaning up..."
+            rm -f /tmp/image.tar.gz
+            docker image prune -f
+          ENDSSH
+
+      - name: Cleanup SSH Key
+        if: always()
+        run: rm -f ~/.ssh/grokking.pem
+
+      - name: Notify
+        run: |
+          echo "✅ Built from branch: ${{ github.event.inputs.BRANCH_TO_BUILD }}"
+          echo "✅ Commit hash: ${{ env.SHORT_COMMIT }}"
+          echo "✅ Timestamp: ${{ env.TIMESTAMP }}"
+          echo "✅ Image tag: ${{ env.IMAGE_TAG }}"
+          echo "🚀 Deployed to EC2: ${{ env.EC2_USER }}@${{ env.EC2_HOST }}"
+          echo "🔗 Application URL: http://${{ env.EC2_HOST }}:${{ env.CONTAINER_PORT }}"
+
