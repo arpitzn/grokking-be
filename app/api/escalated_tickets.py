@@ -68,6 +68,32 @@ def serialize_ticket(ticket: Dict[str, Any]) -> Dict[str, Any]:
         else:
             timestamp = timestamp.isoformat() if hasattr(timestamp, 'isoformat') else str(timestamp)
     
+    # Serialize agent_notes - convert dict format to string format
+    agent_notes_raw = ticket.get("agent_notes", [])
+    agent_notes = []
+    for note in agent_notes_raw:
+        if isinstance(note, dict):
+            # Convert dict format: {"note": "...", "created_at": ..., "created_by": "..."}
+            # to string format: "[2026-02-01 12:00:00 by system] Note text"
+            note_text = note.get("note", "")
+            created_at_note = note.get("created_at")
+            created_by = note.get("created_by", "unknown")
+            
+            if created_at_note:
+                if isinstance(created_at_note, str):
+                    timestamp_str = created_at_note
+                else:
+                    timestamp_str = created_at_note.isoformat() if hasattr(created_at_note, 'isoformat') else str(created_at_note)
+                agent_notes.append(f"[{timestamp_str} by {created_by}] {note_text}")
+            else:
+                agent_notes.append(f"[by {created_by}] {note_text}")
+        elif isinstance(note, str):
+            # Already string format
+            agent_notes.append(note)
+        else:
+            # Fallback: convert to string
+            agent_notes.append(str(note))
+    
     return {
         "ticket_id": ticket_id,
         "user_id": user_id,
@@ -88,7 +114,7 @@ def serialize_ticket(ticket: Dict[str, Any]) -> Dict[str, Any]:
         "timestamp": timestamp,
         "related_orders": [str(o) if isinstance(o, bytes) else str(o) for o in ticket.get("related_orders", [])],
         "related_tickets": [str(t) if isinstance(t, bytes) else str(t) for t in ticket.get("related_tickets", [])],
-        "agent_notes": ticket.get("agent_notes", []),
+        "agent_notes": agent_notes,
         "resolution_history": ticket.get("resolution_history", []),
         "resolution": ticket.get("resolution"),
     }
