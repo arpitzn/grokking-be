@@ -24,6 +24,10 @@ class IngestionOutput(BaseModel):
         None, 
         description="User identifier (defaults to request.user_id if not found)"
     )
+    customer_id: Optional[str] = Field(
+        None,
+        description="Customer ID mentioned in query (for agent personas only)"
+    )
     zone_id: Optional[str] = Field(
         None, 
         description="Delivery zone ID if mentioned"
@@ -63,7 +67,8 @@ async def ingestion_node(state: AgentState) -> AgentState:
         "ingestion_agent",
         {
             "raw_text": raw_text,
-            "user_id": user_id
+            "user_id": user_id,
+            "persona": persona
         }
     )
     
@@ -83,14 +88,21 @@ async def ingestion_node(state: AgentState) -> AgentState:
     lc_messages = llm_service.convert_messages(messages)
     response: IngestionOutput = await llm.ainvoke(lc_messages)
     
+    # Get existing values from state (may be pre-populated based on persona)
+    existing_case = state.get("case", {})
+    existing_zone_id = existing_case.get("zone_id")
+    existing_restaurant_id = existing_case.get("restaurant_id")
+    
     # Populate case slice with extracted entities
+    # Preserve pre-populated zone_id/restaurant_id if LLM didn't extract new ones
     state["case"] = {
         "persona": persona,
         "channel": channel,
         "order_id": response.order_id,
         "user_id": response.user_id or user_id,  # Changed from customer_id
-        "zone_id": response.zone_id,
-        "restaurant_id": response.restaurant_id,
+        "customer_id": response.customer_id,  # NEW: Extracted customer reference
+        "zone_id": response.zone_id or existing_zone_id,  # Preserve if LLM didn't extract
+        "restaurant_id": response.restaurant_id or existing_restaurant_id,  # Preserve if LLM didn't extract
         "raw_text": raw_text,
         "normalized_text": response.normalized_query,  # Add normalized version
         "locale": "en-US",

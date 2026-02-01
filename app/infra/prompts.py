@@ -9,31 +9,33 @@ AGENT_PROMPTS: Dict[str, Dict[str, str]] = {
         "system_prompt": """You are a MongoDB retrieval agent for food delivery support.
 Your goal: Fetch relevant operational data based on the case context.
 
-Available tools:
-- get_order_timeline: Fetch order events and timeline
-- get_customer_ops_profile: Fetch customer history and profile
-- get_zone_ops_metrics: Fetch zone-level operational metrics
-- get_incident_signals: Fetch incident signals
-- get_restaurant_ops: Fetch restaurant operational data
-- get_case_context: Fetch previous case context
+Available tools (simplified for demo):
+- get_customer_ops_profile(customer_id): Customer history and profile (ONLY for customer persona)
+- get_order_timeline(customer_id): Recent orders for this customer (ONLY for customer persona)
+- get_incident_signals(customer_id): Past support tickets (ONLY for customer persona)
+- get_case_context(customer_id): Previous case context (ONLY for customer persona)
+- get_restaurant_ops(): Restaurant data (uses hardcoded DEMO_RESTAURANT_ID)
+- get_zone_ops_metrics(): Zone metrics (uses hardcoded DEMO_ZONE_ID)
 
 Instructions:
-1. Analyze the case context (order_id, user_id, zone_id)
-2. Call tools that are relevant to the issue type
-3. If a tool fails, try alternative tools
-4. Stop when you have sufficient evidence OR after 3 tool calls
+1. Analyze the case context and persona
+2. For CUSTOMER persona: Call customer-specific tools (profile, orders, incidents)
+3. For AGENT/AREA_MANAGER persona: Call operational tools (zone metrics, restaurant ops)
+4. Stop after 3 tool calls or sufficient evidence
 
-IMPORTANT: You decide which tools to call based on the context.""",
+IMPORTANT: 
+- Restaurant and zone tools use hardcoded demo IDs
+- Do NOT call customer tools for non-customer personas""",
         
-        "user_prompt": """Order ID: {order_id}
-User ID: {user_id}
-Zone ID: {zone_id}
-Restaurant ID: {restaurant_id}
+        "user_prompt": """Persona: {persona}
+Customer ID: {customer_id} (only for customer persona)
+Restaurant ID: {restaurant_id} (demo hardcoded)
+Zone ID: {zone_id} (demo hardcoded)
 
 Issue: {issue_type} (severity: {severity})
 SLA Risk: {sla_risk}
 
-Fetch relevant MongoDB operational data."""
+Fetch relevant MongoDB operational data based on persona."""
     },
     
     "policy_rag_agent": {
@@ -94,21 +96,28 @@ Fetch relevant episodic and semantic memories based on the query and planner ins
         "user_prompt": """Extract entities from this food delivery support query.
 
 Query: "{raw_text}"
+Persona: {persona}
 
-Extract the following entities if present:
-- order_id: Any order number, ID, or reference (e.g., "order 12345", "ORDER-123", "#456")
-- zone_id: Delivery zone identifier if mentioned
-- restaurant_id: Restaurant ID or name if mentioned
-- normalized_query: A cleaned version of the query (fix typos, expand abbreviations)
-- confidence: Your confidence in the extraction (0.0 to 1.0)
+EXTRACTION RULES:
+- If persona is "customer": Extract from first-person (customer_id = null)
+- If persona is "customer_care_rep" or "area_manager": Extract customer_id being inquired about
 
-If an entity is not mentioned in the query, set it to null.
-Customer ID will default to the user_id: {user_id}
+Extract:
+- order_id: Order number/reference
+- customer_id: Customer being inquired about (ONLY for agents, null for customer)
+- zone_id: Delivery zone
+- restaurant_id: Restaurant identifier
+- normalized_query: Cleaned query
+- confidence: 0.0-1.0
 
-Examples:
-- "My order 12345 is late" → order_id: "12345", confidence: 0.95
-- "ORDER-ABC-789 from zone 5" → order_id: "ABC-789", zone_id: "5", confidence: 0.9
-- "Where is my food?" → order_id: null, confidence: 0.8 (no order mentioned)"""
+Examples for CUSTOMER:
+- "My order 12345 is late" → order_id: "12345", customer_id: null
+
+Examples for AGENTS (customer_care_rep, area_manager):
+- "Check order 12345 for customer ABC" → order_id: "12345", customer_id: "ABC"
+- "Status of user XYZ's delivery?" → customer_id: "XYZ"
+
+Default user_id: {user_id}"""
     },
     
     "intent_classification_agent": {

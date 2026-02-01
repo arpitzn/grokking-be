@@ -6,17 +6,21 @@ Criticality: decision-critical
 Observability: Emits tool_call_started, tool_call_completed, tool_call_failed events
 """
 
-from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Type
+import logging
+from datetime import datetime, timezone
+from typing import Type
 
+from bson import Binary, ObjectId
 from langchain_core.tools import BaseTool
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 from app.models.evidence import IncidentEvidenceEnvelope, ToolResult, ToolStatus
 from app.models.tool_spec import ToolCriticality, ToolSpec
 from app.utils.tool_observability import emit_tool_event
-from app.utils.uuid_helpers import uuid_to_binary, is_uuid_string
+from app.utils.uuid_helpers import string_to_mongo_id
 from app.infra.mongo import get_mongodb_client
+
+logger = logging.getLogger(__name__)
 
 # Tool specification
 TOOL_SPEC = ToolSpec(
@@ -25,55 +29,11 @@ TOOL_SPEC = ToolSpec(
 )
 
 
-def parse_time_window(time_window: str) -> tuple[datetime, datetime]:
-    """Parse time_window string to start/end datetime"""
-    now = datetime.now(timezone.utc)
-    
-    if time_window.endswith("h"):
-        hours = int(time_window[:-1])
-        start_time = now - timedelta(hours=hours)
-    elif time_window.endswith("d"):
-        days = int(time_window[:-1])
-        start_time = now - timedelta(days=days)
-    else:
-        # Default to 24h
-        start_time = now - timedelta(hours=24)
-    
-    return start_time, now
-
-
-def build_incident_query(scope: Dict, start_time: datetime, end_time: datetime) -> Dict:
-    """Build MongoDB query from scope dictionary"""
-    query = {
-        "timestamp": {
-            "$gte": start_time,
-            "$lte": end_time
-        }
-    }
-    
-    if scope.get("order_id"):
-        order_id = scope["order_id"]
-        query["order_id"] = uuid_to_binary(order_id) if is_uuid_string(order_id) else order_id
-    if scope.get("customer_id"):
-        customer_id = scope["customer_id"]
-        query["user_id"] = uuid_to_binary(customer_id) if is_uuid_string(customer_id) else customer_id
-    if scope.get("restaurant_id"):
-        restaurant_id = scope["restaurant_id"]
-        query["restaurant_id"] = uuid_to_binary(restaurant_id) if is_uuid_string(restaurant_id) else restaurant_id
-    if scope.get("zone_id"):
-        zone_id = scope["zone_id"]
-        query["affected_zones"] = uuid_to_binary(zone_id) if is_uuid_string(zone_id) else zone_id
-    if scope.get("scope"):
-        query["scope"] = scope["scope"]
-    
-    return query
-
-
-async def get_incident_signals(scope: Dict, time_window: str) -> IncidentEvidenceEnvelope:
+async def get_incident_signals(customer_id: str) -> IncidentEvidenceEnvelope:
     """
     Tool Responsibility:
-    - Fetches incident signals from MongoDB (support_tickets collection)
-    - Returns relevant support tickets matching scope (order_id, customer_id, zone_id, restaurant_id)
+    - Fetches incident signals from MongoDB (support_tickets collection) for a customer
+    - Returns relevant support tickets for the customer
     
     Criticality: decision-critical (declared in TOOL_SPEC)
     Failure handling: Triggers escalation
@@ -81,40 +41,35 @@ async def get_incident_signals(scope: Dict, time_window: str) -> IncidentEvidenc
     Observability:
     - Emits tool_call_started, tool_call_completed, tool_call_failed events
     """
+    print(f"\n{'='*80}")
+    print(f"[TOOL INPUT] get_incident_signals")
+    print(f"  customer_id: {customer_id}")
+    print(f"{'='*80}\n")
+    
+    logger.info(f"[get_incident_signals] Starting - customer_id={customer_id}")
+    
     emit_tool_event("tool_call_started", {
         "tool_name": "get_incident_signals",
-        "params": {"scope": scope, "time_window": time_window}
+        "params": {"customer_id": customer_id}
     })
     
     try:
-        # Semantic validation: ensure scope has at least one key
-        if not scope:
-            return IncidentEvidenceEnvelope(
-                source="mongo",
-                entity_refs=[],
-                freshness=datetime.now(timezone.utc),
-                confidence=0.0,
-                data={},
-                gaps=["invalid_scope"],
-                provenance={"query": "get_incident_signals", "error": "Empty scope provided"},
-                tool_result=ToolResult(
-                    status=ToolStatus.FAILED,
-                    error="Scope cannot be empty. Please provide at least one of: order_id, customer_id, zone_id, or restaurant_id"
-                )
-            )
-        
         # Get MongoDB client
         db = await get_mongodb_client()
         
-        # Parse time window
-        start_time, end_time = parse_time_window(time_window)
+        # Convert string ID to MongoDB ID (ObjectId or Binary UUID)
+        query_user_id = string_to_mongo_id(customer_id)
+        logger.debug(f"[get_incident_signals] Query user_id (converted): {query_user_id}, type: {type(query_user_id).__name__}")
         
-        # Build query from scope
-        query = build_incident_query(scope, start_time, end_time)
+        # Query support_tickets collection by user_id (customer_id)
+        query_filter = {"user_id": query_user_id}
+        logger.debug(f"[get_incident_signals] MongoDB query filter: {query_filter}")
         
-        # Query support_tickets collection (replaces incidents)
-        cursor = db.support_tickets.find(query).sort("timestamp", -1)
-        tickets = await cursor.to_list(length=100)  # Limit to 100 tickets
+        tickets = await db.support_tickets.find(
+            query_filter
+        ).sort("timestamp", -1).limit(10).to_list(length=10)
+        
+        logger.info(f"[get_incident_signals] Found {len(tickets)} tickets")
         
         # Transform tickets to incident-like structure
         incidents = []
@@ -132,13 +87,27 @@ async def get_incident_signals(scope: Dict, time_window: str) -> IncidentEvidenc
             elif ticket.get("severity") == 3:
                 severity_str = "medium"
             
+            # Convert ObjectId fields to strings
+            ticket_id_val = ticket.get("ticket_id")
+            if isinstance(ticket_id_val, (ObjectId, Binary)):
+                ticket_id_val = str(ticket_id_val)
+            
+            order_id_val = ticket.get("order_id")
+            if isinstance(order_id_val, (ObjectId, Binary)):
+                order_id_val = str(order_id_val)
+            
+            user_id_val = ticket.get("user_id")
+            if isinstance(user_id_val, (ObjectId, Binary)):
+                user_id_val = str(user_id_val)
+            
             incident_data = {
-                "ticket_id": ticket.get("ticket_id"),
+                "ticket_id": ticket_id_val,
                 "ticket_type": ticket.get("ticket_type"),
                 "issue_type": ticket.get("issue_type"),
                 "subtype": ticket.get("subtype", {}),
                 "severity": severity_str,
-                "order_id": ticket.get("order_id"),
+                "order_id": order_id_val,
+                "user_id": user_id_val,
                 "timestamp": ticket.get("timestamp").isoformat() if ticket.get("timestamp") else None,
                 "status": ticket.get("status"),
                 "resolution": ticket.get("resolution")
@@ -146,21 +115,26 @@ async def get_incident_signals(scope: Dict, time_window: str) -> IncidentEvidenc
             incidents.append(incident_data)
         
         signals_data = {
-            "scope": scope,
-            "time_window": time_window,
             "incidents": incidents,
             "total_count": len(incidents),
             "high_severity_count": high_severity_count
         }
         
+        logger.info(f"[get_incident_signals] Success - total_count={signals_data.get('total_count')}, "
+                   f"high_severity_count={signals_data.get('high_severity_count')}")
+        if incidents:
+            logger.debug(f"[get_incident_signals] Sample incidents: {incidents[:2]}")
+        else:
+            logger.debug(f"[get_incident_signals] No incidents found")
+        
         result = IncidentEvidenceEnvelope(
             source="mongo",
-            entity_refs=[scope.get("order_id", scope.get("customer_id", ""))],
+            entity_refs=[customer_id],
             freshness=datetime.now(timezone.utc),
             confidence=0.88 if incidents else 0.5,
             data=signals_data,
             gaps=[] if incidents else ["no_incidents_found"],
-            provenance={"query": "get_incident_signals", "scope": scope, "time_window": time_window, "latency_ms": 55},
+            provenance={"query": "get_incident_signals", "customer_id": customer_id, "latency_ms": 55},
             tool_result=ToolResult(status=ToolStatus.SUCCESS, data=signals_data)
         )
         
@@ -169,9 +143,17 @@ async def get_incident_signals(scope: Dict, time_window: str) -> IncidentEvidenc
             "status": "success"
         })
         
+        print(f"\n{'='*80}")
+        print(f"[TOOL OUTPUT] get_incident_signals - SUCCESS")
+        print(f"  total_count: {signals_data.get('total_count')}")
+        print(f"  high_severity_count: {signals_data.get('high_severity_count')}")
+        print(f"{'='*80}\n")
+        
         return result
         
     except Exception as e:
+        logger.error(f"[get_incident_signals] Error - customer_id={customer_id}, error={str(e)}", exc_info=True)
+        
         emit_tool_event("tool_call_failed", {
             "tool_name": "get_incident_signals",
             "error": str(e)
@@ -179,7 +161,7 @@ async def get_incident_signals(scope: Dict, time_window: str) -> IncidentEvidenc
         
         return IncidentEvidenceEnvelope(
             source="mongo",
-            entity_refs=[],
+            entity_refs=[customer_id],
             freshness=datetime.now(timezone.utc),
             confidence=0.0,
             data={},
@@ -192,45 +174,20 @@ async def get_incident_signals(scope: Dict, time_window: str) -> IncidentEvidenc
 # LangChain BaseTool wrapper
 class GetIncidentSignalsInput(BaseModel):
     """Input schema for get_incident_signals tool"""
-    scope: Dict = Field(
-        default_factory=dict,
-        description=(
-            "Filter scope for incidents. Provide at least ONE of:\n"
-            "- order_id: Order UUID\n"
-            "- customer_id: Customer UUID\n"
-            "- zone_id: Zone identifier\n"
-            "- restaurant_id: Restaurant identifier\n"
-            "Example: {'order_id': '550e8400-e29b-41d4-a716-446655440000'}"
-        )
-    )
-    time_window: str = Field(
-        default="24h",
-        description="Time window: '24h', '7d', '30d' (number + h/d)",
-        pattern=r"^\d+[hd]$"
-    )
-    
-    @field_validator('scope')
-    @classmethod
-    def validate_scope_not_empty(cls, v):
-        if not v:
-            raise ValueError(
-                "Scope must contain at least one of: "
-                "order_id, customer_id, zone_id, or restaurant_id"
-            )
-        return v
+    customer_id: str = Field(description="Customer ID to fetch incident signals for")
 
 
 class GetIncidentSignalsTool(BaseTool):
     """LangChain tool wrapper for get_incident_signals"""
     name: str = "get_incident_signals"
-    description: str = "Fetches incident signals from MongoDB (support_tickets collection). Returns relevant support tickets matching scope (order_id, customer_id, zone_id, restaurant_id) within the specified time window."
+    description: str = "Fetches incident signals from MongoDB (support_tickets collection) for a customer. Returns relevant support tickets for the customer."
     args_schema: Type[BaseModel] = GetIncidentSignalsInput
     
-    async def _arun(self, scope: Dict, time_window: str) -> str:
+    async def _arun(self, customer_id: str) -> str:
         """Async execution - returns JSON string of IncidentEvidenceEnvelope"""
-        result = await get_incident_signals(scope, time_window)
+        result = await get_incident_signals(customer_id)
         return result.model_dump_json()
     
-    def _run(self, scope: Dict, time_window: str) -> dict:
+    def _run(self, customer_id: str) -> dict:
         """Sync execution - not supported for async tools"""
         raise NotImplementedError("This tool only supports async execution")

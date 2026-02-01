@@ -6,18 +6,21 @@ Criticality: decision-critical
 Observability: Emits tool_call_started, tool_call_completed, tool_call_failed events
 """
 
+import logging
 from datetime import datetime, timezone
 from typing import Type
 
-from bson import Binary
+from bson import Binary, ObjectId
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from app.models.evidence import CaseEvidenceEnvelope, ToolResult, ToolStatus
 from app.models.tool_spec import ToolCriticality, ToolSpec
 from app.utils.tool_observability import emit_tool_event
-from app.utils.uuid_helpers import uuid_to_binary, is_uuid_string, binary_to_uuid
+from app.utils.uuid_helpers import string_to_mongo_id, binary_to_uuid
 from app.infra.mongo import get_mongodb_client
+
+logger = logging.getLogger(__name__)
 
 # Tool specification
 TOOL_SPEC = ToolSpec(
@@ -38,6 +41,13 @@ async def get_case_context(case_id: str) -> CaseEvidenceEnvelope:
     Observability:
     - Emits tool_call_started, tool_call_completed, tool_call_failed events
     """
+    print(f"\n{'='*80}")
+    print(f"[TOOL INPUT] get_case_context")
+    print(f"  case_id: {case_id}")
+    print(f"{'='*80}\n")
+    
+    logger.info(f"[get_case_context] Starting - case_id={case_id}")
+    
     emit_tool_event("tool_call_started", {
         "tool_name": "get_case_context",
         "params": {"case_id": case_id}
@@ -47,18 +57,24 @@ async def get_case_context(case_id: str) -> CaseEvidenceEnvelope:
         # Get MongoDB client
         db = await get_mongodb_client()
         
-        # Convert UUID string to Binary UUID if needed
-        query_case_id = uuid_to_binary(case_id) if is_uuid_string(case_id) else case_id
+        # Convert string ID to MongoDB ID (ObjectId or Binary UUID)
+        # Note: case_id might be ticket_id (ObjectId), _id (ObjectId), or conversation_id (string)
+        query_case_id = string_to_mongo_id(case_id) if len(case_id) == 24 else case_id
+        logger.debug(f"[get_case_context] Query case_id (converted): {query_case_id}, type: {type(query_case_id).__name__}")
         
         # Query support_tickets collection (replaces cases)
         # Try ticket_id first, then _id, then conversation_id
+        logger.debug(f"[get_case_context] Trying ticket_id lookup")
         ticket_doc = await db.support_tickets.find_one({"ticket_id": query_case_id})
         if not ticket_doc:
+            logger.debug(f"[get_case_context] Trying _id lookup")
             ticket_doc = await db.support_tickets.find_one({"_id": query_case_id})
         if not ticket_doc:
+            logger.debug(f"[get_case_context] Trying conversation_id lookup")
             ticket_doc = await db.support_tickets.find_one({"conversation_id": case_id})
         
         if not ticket_doc:
+            logger.warning(f"[get_case_context] Support ticket not found - case_id={case_id}")
             # Ticket not found - return empty with gap
             return CaseEvidenceEnvelope(
                 source="mongo",
@@ -72,23 +88,39 @@ async def get_case_context(case_id: str) -> CaseEvidenceEnvelope:
             )
         
         # Transform MongoDB document to case-like structure
+        # Convert ObjectIds and Binary UUIDs to strings for JSON serialization
+        from bson import ObjectId
+        
         ticket_id_val = ticket_doc.get("ticket_id")
         if isinstance(ticket_id_val, Binary):
             ticket_id_val = binary_to_uuid(ticket_id_val)
+        elif isinstance(ticket_id_val, ObjectId):
+            ticket_id_val = str(ticket_id_val)
+        
+        user_id_val = ticket_doc.get("user_id")
+        if isinstance(user_id_val, (Binary, ObjectId)):
+            user_id_val = str(user_id_val)
+        
+        # Convert arrays of ObjectIds to strings
+        related_orders = ticket_doc.get("related_orders", [])
+        related_orders_str = [str(oid) if isinstance(oid, (ObjectId, Binary)) else oid for oid in related_orders]
+        
+        related_tickets = ticket_doc.get("related_tickets", [])
+        related_tickets_str = [str(oid) if isinstance(oid, (ObjectId, Binary)) else oid for oid in related_tickets]
         
         context_data = {
             "ticket_id": ticket_id_val,
-            "case_id": ticket_doc.get("ticket_id"),  # Keep case_id for backward compatibility
+            "case_id": ticket_id_val,  # Keep case_id for backward compatibility
             "conversation_id": ticket_doc.get("conversation_id"),
-            "user_id": ticket_doc.get("user_id"),
+            "user_id": user_id_val,
             "ticket_type": ticket_doc.get("ticket_type"),
             "issue_type": ticket_doc.get("issue_type"),
             "subtype": ticket_doc.get("subtype", {}),
             "severity": ticket_doc.get("severity"),
             "created_at": ticket_doc.get("created_at").isoformat() if ticket_doc.get("created_at") else None,
             "status": ticket_doc.get("status"),
-            "related_orders": ticket_doc.get("related_orders", []),
-            "related_tickets": ticket_doc.get("related_tickets", []),  # Changed from related_cases
+            "related_orders": related_orders_str,
+            "related_tickets": related_tickets_str,
             "agent_notes": ticket_doc.get("agent_notes", []),
             "resolution_history": ticket_doc.get("resolution_history", []),
             "resolution": ticket_doc.get("resolution")
@@ -110,9 +142,18 @@ async def get_case_context(case_id: str) -> CaseEvidenceEnvelope:
             "status": "success"
         })
         
+        print(f"\n{'='*80}")
+        print(f"[TOOL OUTPUT] get_case_context - SUCCESS")
+        print(f"  ticket_id: {context_data.get('ticket_id')}")
+        print(f"  issue_type: {context_data.get('issue_type')}")
+        print(f"  status: {context_data.get('status')}")
+        print(f"{'='*80}\n")
+        
         return result
         
     except Exception as e:
+        logger.error(f"[get_case_context] Error - case_id={case_id}, error={str(e)}", exc_info=True)
+        
         emit_tool_event("tool_call_failed", {
             "tool_name": "get_case_context",
             "error": str(e)

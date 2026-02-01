@@ -15,6 +15,8 @@ from app.agent.state import (
 from app.infra.llm import get_cheap_model, get_llm_service
 from app.infra.prompts import get_prompts
 from app.tools.registry import MONGO_TOOLS
+from app.utils.persona_helpers import resolve_customer_id
+from app.infra.demo_constants import DEMO_RESTAURANT_ID, DEMO_ZONE_ID
 
 logger = logging.getLogger(__name__)
 
@@ -49,16 +51,20 @@ def create_mongo_retrieval_subgraph():
         if "mongo" not in state["evidence"]:
             state["evidence"]["mongo"] = []
         
+        # Resolve customer_id based on persona
+        extracted_customer_id = case.get("customer_id")
+        target_customer_id = resolve_customer_id(case, extracted_customer_id)
+        
         # Get prompts with variables substituted
         system_prompt, user_prompt = get_prompts(
             "mongo_retrieval_agent",
             {
+                "persona": case.get("persona", "customer"),
                 "normalized_text": case.get("normalized_text", case.get("raw_text", "")),
                 "retrieval_focus": plan.get("retrieval_instructions", {}).get("mongo_retrieval", ""),
-                "order_id": case.get("order_id", "N/A"),
-                "user_id": case.get("user_id", "N/A"),
-                "zone_id": case.get("zone_id", "N/A"),
-                "restaurant_id": case.get("restaurant_id", "N/A"),
+                "customer_id": target_customer_id,  # Changed from user_id
+                "restaurant_id": DEMO_RESTAURANT_ID,  # Hardcoded
+                "zone_id": DEMO_ZONE_ID,  # Hardcoded
                 "issue_type": intent.get("issue_type", "unknown"),
                 "severity": intent.get("severity", "low"),
                 "sla_risk": str(intent.get("SLA_risk", False))
