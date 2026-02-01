@@ -12,9 +12,15 @@ RUN apt-get update && apt-get install -y \
     poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
+# Upgrade pip to latest version
+RUN pip install --no-cache-dir --upgrade pip
+
 # Copy requirements and install Python dependencies
+# Use --no-cache-dir and clean up pip cache to save space
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip cache purge \
+    && rm -rf /tmp/* /var/tmp/*
 
 # Copy application
 COPY app/ ./app/
