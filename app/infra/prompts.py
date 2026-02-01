@@ -50,11 +50,16 @@ Instructions:
 3. If search returns insufficient results, refine query
 4. Stop when you have relevant policies OR after 3 tool calls""",
         
-        "user_prompt": """Issue Type: {issue_type}
-Severity: {severity}
-SLA Risk: {sla_risk}
+        "user_prompt": """User Query: {normalized_text}
 
-Retrieve relevant policies, SOPs, and SLAs."""
+Planner Instructions: {retrieval_focus}
+
+Context:
+- Issue Type: {issue_type}
+- Severity: {severity}
+- SLA Risk: {sla_risk}
+
+Retrieve relevant policies, SOPs, and SLAs based on the query and planner instructions."""
     },
     
     "memory_retrieval_agent": {
@@ -71,11 +76,15 @@ Instructions:
 3. If results are sparse, try alternative query formulations
 4. Stop when you have relevant memories OR after 3 tool calls""",
         
-        "user_prompt": """User ID: {user_id}
-Issue: {issue_type} (severity: {severity})
-Query: {raw_text}
+        "user_prompt": """User Query: {normalized_text}
 
-Fetch relevant episodic and semantic memories."""
+Planner Instructions: {retrieval_focus}
+
+Context:
+- User ID: {user_id}
+- Issue: {issue_type} (severity: {severity})
+
+Fetch relevant episodic and semantic memories based on the query and planner instructions."""
     },
     
     # Main agent nodes
@@ -166,7 +175,13 @@ Based on the query, intent, and entities, decide:
    - mongo_retrieval: For order, customer, zone, restaurant, incident data
    - policy_rag: For policies, SOPs, SLAs
    - memory_retrieval: For past conversations and user preferences
-2. Should this be handled automatically or escalated to human?
+
+2. For EACH activated agent, provide a specific instruction (1-2 sentences) on what to focus on:
+   - What specific data to prioritize
+   - What aspect of the issue to investigate
+   - What context is most relevant
+
+3. Should this be handled automatically or escalated to human?
 
 Guidelines:
 - For refund requests: activate mongo_retrieval (order/customer data) and policy_rag (refund policy)
@@ -174,7 +189,14 @@ Guidelines:
 - For quality issues: activate mongo_retrieval (order/restaurant data) and policy_rag (quality policy)
 - For safety concerns: activate mongo_retrieval (incident signals) and policy_rag (safety policy), recommend human escalation
 - Always activate memory_retrieval to check past similar cases
-- If high severity or SLA risk, recommend human escalation"""
+- If high severity or SLA risk, recommend human escalation
+
+Example retrieval_instructions:
+{{
+  "mongo_retrieval": "Focus on order timeline and delivery status. Check for zone-level incidents that might explain the delay.",
+  "policy_rag": "Search for refund eligibility policies and SLA violation compensation guidelines.",
+  "memory_retrieval": "Look for similar past refund requests from this customer and their resolution outcomes."
+}}"""
     },
     
     "reasoning_agent": {

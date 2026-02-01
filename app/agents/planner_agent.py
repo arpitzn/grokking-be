@@ -11,7 +11,7 @@ IMPORTANT: Planner depends on Intent Classification output.
 Intent Classification is a mandatory pre-planning signal.
 """
 
-from typing import List, Dict, Any, Literal
+from typing import List, Dict, Any, Literal, Optional
 from pydantic import BaseModel, Field
 
 from app.agent.state import AgentState, emit_phase_event
@@ -23,6 +23,10 @@ class PlanningOutput(BaseModel):
     """Structured output for planner LLM"""
     agents_to_activate: List[Literal["mongo_retrieval", "policy_rag", "memory_retrieval"]] = Field(
         description="List of agent names to activate in parallel"
+    )
+    retrieval_instructions: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Instructions for each agent on what to focus on (key: agent_name, value: instruction)"
     )
     initial_route: Literal["auto", "human"] = Field(
         description="Advisory routing decision: auto for auto-response, human for escalation"
@@ -46,6 +50,7 @@ async def planner_node(state: AgentState) -> AgentState:
         state["plan"] = {
             "agents_to_activate": [],
             "context": {"issue_type": "greeting"},
+            "retrieval_instructions": {},
             "initial_route": "auto"
         }
         emit_phase_event(state, "planning", "Greeting detected, skipping retrieval")
@@ -105,6 +110,7 @@ async def planner_node(state: AgentState) -> AgentState:
             "severity": intent.get("severity"),
             "entities": case
         },
+        "retrieval_instructions": planning_output.retrieval_instructions or {},
         "initial_route": planning_output.initial_route
     }
     

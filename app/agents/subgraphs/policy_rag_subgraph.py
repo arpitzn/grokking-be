@@ -31,7 +31,9 @@ def create_policy_rag_subgraph():
     
     def agent_node(state: PolicyRetrievalState) -> PolicyRetrievalState:
         """Agent decides which policy tools to call"""
+        case = state.get("case", {})
         intent = state.get("intent", {})
+        plan = state.get("plan", {})
         
         # Initialize state
         if "messages" not in state:
@@ -45,6 +47,8 @@ def create_policy_rag_subgraph():
         system_prompt, user_prompt = get_prompts(
             "policy_rag_agent",
             {
+                "normalized_text": case.get("normalized_text", case.get("raw_text", "")),
+                "retrieval_focus": plan.get("retrieval_instructions", {}).get("policy_rag", ""),
                 "issue_type": intent.get("issue_type", "unknown"),
                 "severity": intent.get("severity", "low"),
                 "sla_risk": str(intent.get("SLA_risk", False))
@@ -110,7 +114,7 @@ def create_policy_rag_subgraph():
         output=PolicyRetrievalOutputState
     )
     graph.add_node("agent", agent_node)
-    graph.add_node("tools", ToolNode(POLICY_TOOLS))
+    graph.add_node("tools", ToolNode(POLICY_TOOLS, handle_tool_errors=True))
     graph.add_node("extract", extract_evidence)
     
     graph.set_entry_point("agent")

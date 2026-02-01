@@ -33,6 +33,7 @@ def create_mongo_retrieval_subgraph():
         """Agent decides which MongoDB tools to call"""
         case = state.get("case", {})
         intent = state.get("intent", {})
+        plan = state.get("plan", {})
         
         # Initialize state
         if "messages" not in state:
@@ -46,6 +47,8 @@ def create_mongo_retrieval_subgraph():
         system_prompt, user_prompt = get_prompts(
             "mongo_retrieval_agent",
             {
+                "normalized_text": case.get("normalized_text", case.get("raw_text", "")),
+                "retrieval_focus": plan.get("retrieval_instructions", {}).get("mongo_retrieval", ""),
                 "order_id": case.get("order_id", "N/A"),
                 "user_id": case.get("user_id", "N/A"),  # Changed from customer_id
                 "zone_id": case.get("zone_id", "N/A"),
@@ -115,7 +118,7 @@ def create_mongo_retrieval_subgraph():
         output=MongoRetrievalOutputState
     )
     graph.add_node("agent", agent_node)
-    graph.add_node("tools", ToolNode(MONGO_TOOLS))
+    graph.add_node("tools", ToolNode(MONGO_TOOLS, handle_tool_errors=True))
     graph.add_node("extract", extract_evidence)
     
     graph.set_entry_point("agent")

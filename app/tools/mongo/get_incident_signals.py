@@ -10,7 +10,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Type
 
 from langchain_core.tools import BaseTool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.models.evidence import IncidentEvidenceEnvelope, ToolResult, ToolStatus
 from app.models.tool_spec import ToolCriticality, ToolSpec
@@ -87,6 +87,22 @@ async def get_incident_signals(scope: Dict, time_window: str) -> IncidentEvidenc
     })
     
     try:
+        # Semantic validation: ensure scope has at least one key
+        if not scope:
+            return IncidentEvidenceEnvelope(
+                source="mongo",
+                entity_refs=[],
+                freshness=datetime.now(timezone.utc),
+                confidence=0.0,
+                data={},
+                gaps=["invalid_scope"],
+                provenance={"query": "get_incident_signals", "error": "Empty scope provided"},
+                tool_result=ToolResult(
+                    status=ToolStatus.FAILED,
+                    error="Scope cannot be empty. Please provide at least one of: order_id, customer_id, zone_id, or restaurant_id"
+                )
+            )
+        
         # Get MongoDB client
         db = await get_mongodb_client()
         
@@ -176,8 +192,32 @@ async def get_incident_signals(scope: Dict, time_window: str) -> IncidentEvidenc
 # LangChain BaseTool wrapper
 class GetIncidentSignalsInput(BaseModel):
     """Input schema for get_incident_signals tool"""
-    scope: Dict = Field(description="Scope dictionary with order_id, customer_id, zone_id, or restaurant_id")
-    time_window: str = Field(default="24h", description="Time window for incident search (e.g., '24h', '7d')")
+    scope: Dict = Field(
+        default_factory=dict,
+        description=(
+            "Filter scope for incidents. Provide at least ONE of:\n"
+            "- order_id: Order UUID\n"
+            "- customer_id: Customer UUID\n"
+            "- zone_id: Zone identifier\n"
+            "- restaurant_id: Restaurant identifier\n"
+            "Example: {'order_id': '550e8400-e29b-41d4-a716-446655440000'}"
+        )
+    )
+    time_window: str = Field(
+        default="24h",
+        description="Time window: '24h', '7d', '30d' (number + h/d)",
+        pattern=r"^\d+[hd]$"
+    )
+    
+    @field_validator('scope')
+    @classmethod
+    def validate_scope_not_empty(cls, v):
+        if not v:
+            raise ValueError(
+                "Scope must contain at least one of: "
+                "order_id, customer_id, zone_id, or restaurant_id"
+            )
+        return v
 
 
 class GetIncidentSignalsTool(BaseTool):

@@ -7,7 +7,7 @@ Observability: Emits tool_call_started, tool_call_completed, tool_call_failed ev
 """
 
 from datetime import datetime, timezone
-from typing import List, Type
+from typing import List, Literal, Type
 
 from bson import Binary
 from langchain_core.tools import BaseTool
@@ -144,10 +144,19 @@ async def get_order_timeline(order_id: str, include: List[str]) -> OrderEvidence
 # LangChain BaseTool wrapper
 class GetOrderTimelineInput(BaseModel):
     """Input schema for get_order_timeline tool"""
-    order_id: str = Field(description="Order ID to fetch timeline for")
-    include: List[str] = Field(
+    order_id: str = Field(
+        description="Order UUID. Example: '550e8400-e29b-41d4-a716-446655440000'"
+    )
+    include: List[Literal["events", "status", "timestamps", "refund", "payment"]] = Field(
         default=["events", "status", "timestamps"],
-        description="Fields to include: events, status, timestamps"
+        description=(
+            "Fields to include:\n"
+            "- events: Order lifecycle events\n"
+            "- status: Current status\n"
+            "- timestamps: Delivery times\n"
+            "- refund: Refund info (if any)\n"
+            "- payment: Payment details (if any)"
+        )
     )
 
 

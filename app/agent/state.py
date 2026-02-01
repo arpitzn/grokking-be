@@ -53,6 +53,7 @@ class MongoRetrievalInputState(TypedDict):
     """Input schema for mongo retrieval subgraph"""
     case: Dict[str, Any]  # Read-only: order_id, customer_id, etc.
     intent: Dict[str, Any]  # Read-only: issue_type, severity, SLA_risk
+    plan: Dict[str, Any]  # Read-only: retrieval_instructions, agents_to_activate
     evidence: Dict[str, List[Dict]]  # Shared evidence accumulator
 
 
@@ -71,6 +72,7 @@ class PolicyRetrievalInputState(TypedDict):
     """Input schema for policy retrieval subgraph"""
     case: Dict[str, Any]  # Read-only: order_id, customer_id, etc.
     intent: Dict[str, Any]  # Read-only: issue_type, severity, SLA_risk
+    plan: Dict[str, Any]  # Read-only: retrieval_instructions, agents_to_activate
     evidence: Dict[str, List[Dict]]  # Shared evidence accumulator
 
 
@@ -89,6 +91,7 @@ class MemoryRetrievalInputState(TypedDict):
     """Input schema for memory retrieval subgraph"""
     case: Dict[str, Any]  # Read-only: order_id, customer_id, etc.
     intent: Dict[str, Any]  # Read-only: issue_type, severity, SLA_risk
+    plan: Dict[str, Any]  # Read-only: retrieval_instructions, agents_to_activate
     evidence: Dict[str, List[Dict]]  # Shared evidence accumulator
 
 

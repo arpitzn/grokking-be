@@ -34,6 +34,7 @@ def create_memory_retrieval_subgraph():
         """Agent decides which memory tools to call"""
         case = state.get("case", {})
         intent = state.get("intent", {})
+        plan = state.get("plan", {})
         
         # Initialize state slices
         if "messages" not in state:
@@ -47,10 +48,11 @@ def create_memory_retrieval_subgraph():
         system_prompt, user_prompt = get_prompts(
             "memory_retrieval_agent",
             {
+                "normalized_text": case.get("normalized_text", case.get("raw_text", "")),
+                "retrieval_focus": plan.get("retrieval_instructions", {}).get("memory_retrieval", ""),
                 "user_id": case.get("user_id", "N/A"),  # Changed from customer_id
                 "issue_type": intent.get("issue_type", "unknown"),
-                "severity": intent.get("severity", "low"),
-                "raw_text": case.get("raw_text", "")
+                "severity": intent.get("severity", "low")
             }
         )
         
@@ -120,7 +122,7 @@ def create_memory_retrieval_subgraph():
         output=MemoryRetrievalOutputState
     )
     graph.add_node("agent", agent_node)
-    graph.add_node("tools", ToolNode(MEMORY_TOOLS))
+    graph.add_node("tools", ToolNode(MEMORY_TOOLS, handle_tool_errors=True))
     graph.add_node("extract", extract_evidence)
     
     graph.set_entry_point("agent")
