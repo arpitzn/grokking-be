@@ -4,7 +4,7 @@
 description: "Guardrails Safety Evaluation"
 
 providers:
-  - id: "python:promptfoo/providers/guardrails_provider.py"
+  - id: "python:../providers/guardrails_provider.py"
     label: "Input Validation"
     config:
       test_type: input

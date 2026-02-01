@@ -4,13 +4,13 @@
 description: "RAG Retrieval Quality Evaluation"
 
 providers:
-  - id: "python:promptfoo/providers/rag_provider.py"
+  - id: "python:../providers/rag_provider.py"
     label: "top_k=3"
     config:
       top_k: 3
       embedding_model: text-embedding-3-small
 
-  - id: "python:promptfoo/providers/rag_provider.py"
+  - id: "python:../providers/rag_provider.py"
     label: "top_k=5"
     config:
       top_k: 5
