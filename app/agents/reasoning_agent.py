@@ -108,6 +108,7 @@ async def reasoning_node(state: AgentState) -> AgentState:
     system_prompt, user_prompt = get_prompts(
         "reasoning_agent",
         {
+            "persona": case.get('persona', 'customer'),
             "issue_type": intent.get('issue_type', 'unknown'),
             "severity": intent.get('severity', 'low'),
             "sla_risk": str(intent.get('SLA_risk', False)),

@@ -53,6 +53,7 @@ class MongoRetrievalInputState(TypedDict):
     """Input schema for mongo retrieval subgraph"""
     case: Dict[str, Any]  # Read-only: order_id, customer_id, etc.
     intent: Dict[str, Any]  # Read-only: issue_type, severity, SLA_risk
+    plan: Dict[str, Any]  # Read-only: retrieval_instructions, agents_to_activate
     evidence: Dict[str, List[Dict]]  # Shared evidence accumulator
 
 
@@ -71,6 +72,7 @@ class PolicyRetrievalInputState(TypedDict):
     """Input schema for policy retrieval subgraph"""
     case: Dict[str, Any]  # Read-only: order_id, customer_id, etc.
     intent: Dict[str, Any]  # Read-only: issue_type, severity, SLA_risk
+    plan: Dict[str, Any]  # Read-only: retrieval_instructions, agents_to_activate
     evidence: Dict[str, List[Dict]]  # Shared evidence accumulator
 
 
@@ -89,6 +91,7 @@ class MemoryRetrievalInputState(TypedDict):
     """Input schema for memory retrieval subgraph"""
     case: Dict[str, Any]  # Read-only: order_id, customer_id, etc.
     intent: Dict[str, Any]  # Read-only: issue_type, severity, SLA_risk
+    plan: Dict[str, Any]  # Read-only: retrieval_instructions, agents_to_activate
     evidence: Dict[str, List[Dict]]  # Shared evidence accumulator
 
 
@@ -108,7 +111,9 @@ class AgentState(TypedDict):
     Comprehensive state schema for food delivery agentic operations co-pilot.
     
     State slices:
-    - Input: case (persona, channel, order_id, customer_id, zone_id, raw_text, locale)
+    - Input: case (persona, channel, order_id, user_id, customer_id, zone_id, raw_text, locale)
+      - user_id: ID of person making request (always present)
+      - customer_id: ID of customer being inquired about (extracted for agents, null for customers)
     - Interpretation: intent (issue_type, severity, SLA_risk, safety_flags), plan (agents_to_activate, initial_route)
     - Evidence: evidence (mongo[], policy[], memory[])
     - Decision: analysis (hypotheses[], action_candidates[], confidence, gaps), guardrails (compliance, routing_decision FINAL)
@@ -118,7 +123,7 @@ class AgentState(TypedDict):
     """
     
     # Input slice - PARALLEL UPDATES (subgraphs return full state)
-    case: Annotated[Dict[str, Any], merge_dicts]  # persona, channel, order_id, user_id, zone_id, raw_text, locale, conversation_id
+    case: Annotated[Dict[str, Any], merge_dicts]  # persona, channel, order_id, user_id, customer_id, zone_id, raw_text, locale, conversation_id
     
     # Interpretation slice - PARALLEL UPDATES (subgraphs return full state)
     intent: Annotated[Dict[str, Any], merge_dicts]  # issue_type, severity, SLA_risk, safety_flags
@@ -216,16 +221,27 @@ def create_initial_state(
     Returns:
         Initialized AgentState with conversation context
     """
+    from app.infra.demo_constants import DEMO_ZONE_ID, DEMO_RESTAURANT_ID
+    
+    persona = request.persona or "customer"
+    
+    # Pre-populate zone_id and restaurant_id for demo based on persona
+    # area_manager: Gets zone metrics (their primary concern)
+    # customer_care_rep: Gets restaurant ops (for customer support context)
+    zone_id = DEMO_ZONE_ID if persona == "area_manager" else None
+    restaurant_id = DEMO_RESTAURANT_ID if persona in ["area_manager", "customer_care_rep"] else None
+    
     return {
         "case": {
-            "persona": request.persona or "customer",
+            "persona": persona,
             "channel": request.channel or "web",
             "raw_text": request.message,
             "user_id": request.user_id,
+            "customer_id": None,  # Will be extracted by ingestion agent for agent personas
             "conversation_id": conversation_id,
             "order_id": None,
-            "zone_id": None,
-            "restaurant_id": None,
+            "zone_id": zone_id,  # Pre-populated for area_manager persona
+            "restaurant_id": restaurant_id,  # Pre-populated for agent personas
             "locale": "en-US",
         },
         "intent": {},

@@ -15,6 +15,7 @@ from typing import Any, Dict
 from app.agent.state import AgentState
 from app.tools.mem0.write_memory import write_memory
 from app.utils.memory_builder import MemoryBuilder
+from app.utils.persona_helpers import resolve_customer_id
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,9 @@ async def memory_write_node(state: AgentState) -> AgentState:
     final_response = state.get("final_response", "")
     handover_packet = state.get("handover_packet")
 
-    user_id = case.get("user_id", "")  # Changed from customer_id fallback
+    # Resolve which customer to store memories for
+    extracted_customer_id = case.get("customer_id")
+    target_customer_id = resolve_customer_id(case, extracted_customer_id)
 
     # Derive outcome from final_response or handover_packet
     if handover_packet:
@@ -81,7 +84,7 @@ async def memory_write_node(state: AgentState) -> AgentState:
                 write_memory(
                     content=memory_content,
                     memory_type="episodic",
-                    user_id=user_id,  # User-scoped
+                    user_id=target_customer_id,  # Resolved customer ID
                 )
             )
     except Exception as e:

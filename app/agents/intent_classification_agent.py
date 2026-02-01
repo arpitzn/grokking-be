@@ -70,6 +70,7 @@ async def intent_classification_node(state: AgentState) -> AgentState:
     system_prompt, user_prompt = get_prompts(
         "intent_classification_agent",
         {
+            "persona": case.get('persona', 'customer'),
             "normalized_text": normalized_text,
             "order_id": order_id or "Not mentioned",
             "history_context": history_context

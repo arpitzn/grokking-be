@@ -50,6 +50,7 @@ async def response_synthesis_node(state: AgentState) -> AgentState:
     system_prompt, user_prompt = get_prompts(
         "response_synthesis_agent",
         {
+            "persona": case.get('persona', 'customer'),
             "raw_text": case.get('raw_text', ''),
             "issue_type": issue_type or 'unknown',
             "needs_more_data": str(needs_more_data),

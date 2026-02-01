@@ -1,10 +1,10 @@
-"""Memory retrieval subgraph - simplified with ToolNode"""
+"""Memory retrieval subgraph - using LangGraph's create_react_agent with async fix"""
 
 import logging
 import json
 from langgraph.graph import END, StateGraph
-from langgraph.prebuilt import ToolNode, tools_condition
-from langchain_core.messages import HumanMessage, SystemMessage
+from langgraph.prebuilt import create_react_agent
+from langchain_core.messages import SystemMessage
 
 from app.agent.state import (
     MemoryRetrievalState,
@@ -20,24 +20,30 @@ logger = logging.getLogger(__name__)
 
 
 def create_memory_retrieval_subgraph():
-    """Create memory retrieval subgraph with ToolNode"""
+    """Create memory retrieval subgraph using LangGraph's create_react_agent with async fix"""
     
-    # Get LLM with tools bound
+    # Get LLM (no tool binding needed - create_react_agent handles it)
     llm_service = get_llm_service()
-    llm_with_tools = llm_service.get_llm_instance_with_tools(
+    llm = llm_service.get_llm_instance(
         model_name=get_cheap_model(),
-        tools=MEMORY_TOOLS,
         temperature=0
     )
     
-    def agent_node(state: MemoryRetrievalState) -> MemoryRetrievalState:
-        """Agent decides which memory tools to call"""
+    # Create the react agent with automatic tool-calling loop
+    # This handles all message state management automatically
+    base_agent = create_react_agent(
+        model=llm,
+        tools=MEMORY_TOOLS
+    )
+    
+    # Wrapper to adapt to our state schema and add evidence extraction
+    async def memory_agent_wrapper(state: MemoryRetrievalState) -> MemoryRetrievalState:
+        """Wrapper that adapts our state to react agent and extracts evidence"""
         case = state.get("case", {})
         intent = state.get("intent", {})
+        plan = state.get("plan", {})
         
-        # Initialize state slices
-        if "messages" not in state:
-            state["messages"] = []
+        # Initialize evidence
         if "evidence" not in state:
             state["evidence"] = {}
         if "memory" not in state["evidence"]:
@@ -47,97 +53,70 @@ def create_memory_retrieval_subgraph():
         system_prompt, user_prompt = get_prompts(
             "memory_retrieval_agent",
             {
-                "user_id": case.get("user_id", "N/A"),  # Changed from customer_id
+                "normalized_text": case.get("normalized_text", case.get("raw_text", "")),
+                "retrieval_focus": plan.get("retrieval_instructions", {}).get("memory_retrieval", ""),
+                "user_id": case.get("user_id", "N/A"),
                 "issue_type": intent.get("issue_type", "unknown"),
-                "severity": intent.get("severity", "low"),
-                "raw_text": case.get("raw_text", "")
+                "severity": intent.get("severity", "low")
             }
         )
         
-        # First call: initialize messages
-        if not state["messages"]:
-            messages = [
+        # Prepare input for react agent
+        agent_input = {
+            "messages": [
                 SystemMessage(content=system_prompt),
-                HumanMessage(content=user_prompt)
+                {"role": "user", "content": user_prompt}
             ]
-        else:
-            # Subsequent calls: use existing message history
-            messages = state["messages"]
+        }
         
-        # Call LLM
         try:
-            response = llm_with_tools.invoke(messages)
+            # Run the agent - handles tool loop automatically (async)
+            # Use await directly - no asyncio.run() to avoid event loop conflicts
+            result = await base_agent.ainvoke(agent_input)
             
-            # Update messages
-            if not state["messages"]:
-                state["messages"] = messages + [response]
-            else:
-                state["messages"].append(response)
-                
+            # Extract evidence from tool messages
+            messages = result.get("messages", [])
+            evidence_count = 0
+            
+            for msg in messages:
+                if hasattr(msg, 'type') and msg.type == 'tool':
+                    try:
+                        if isinstance(msg.content, str):
+                            evidence = json.loads(msg.content)
+                        else:
+                            evidence = msg.content
+                        
+                        state["evidence"]["memory"].append(evidence)
+                        evidence_count += 1
+                    except (json.JSONDecodeError, Exception) as e:
+                        logger.debug(f"Skipping malformed evidence: {e}")
+            
+            # Emit phase event
+            if evidence_count > 0:
+                emit_phase_event(
+                    state,
+                    "searching",
+                    f"Retrieved {evidence_count} items from Memory",
+                    metadata={"source": "memory", "count": evidence_count}
+                )
+            
         except Exception as e:
-            logger.error(f"Memory agent error: {e}")
-            # Let ToolNode handle errors
+            logger.error(f"Memory retrieval agent error: {e}")
+            # Continue with empty evidence
         
         return state
     
-    def extract_evidence(state: MemoryRetrievalState) -> MemoryRetrievalState:
-        """Extract evidence from tool messages"""
-        messages = state.get("messages", [])
-        results = []
-        
-        # Find ToolMessages and extract evidence
-        for msg in messages:
-            if hasattr(msg, 'type') and msg.type == 'tool':
-                try:
-                    if isinstance(msg.content, str):
-                        evidence = json.loads(msg.content)
-                    else:
-                        evidence = msg.content
-                    
-                    if "memory" not in state["evidence"]:
-                        state["evidence"]["memory"] = []
-                    state["evidence"]["memory"].append(evidence)
-                    results.append(evidence)
-                except (json.JSONDecodeError, Exception) as e:
-                    logger.debug(f"Skipping malformed evidence: {e}")
-                    pass  # Skip malformed evidence
-        
-        # Emit phase event after evidence extraction
-        if results:
-            emit_phase_event(
-                state,
-                "searching",
-                f"Retrieved {len(results)} items from Memory",
-                metadata={"source": "memory", "count": len(results)}
-            )
-        
-        return state
-    
-    # Build graph with input/output schemas for state isolation
+    # Wrap in StateGraph for input/output schema compatibility
     graph = StateGraph(
         MemoryRetrievalState,
         input=MemoryRetrievalInputState,
         output=MemoryRetrievalOutputState
     )
-    graph.add_node("agent", agent_node)
-    graph.add_node("tools", ToolNode(MEMORY_TOOLS))
-    graph.add_node("extract", extract_evidence)
-    
+    graph.add_node("agent", memory_agent_wrapper)
     graph.set_entry_point("agent")
-    
-    # Use tools_condition for routing
-    graph.add_conditional_edges(
-        "agent",
-        tools_condition,
-        {
-            "tools": "tools",
-            END: "extract"  # Extract evidence before ending
-        }
-    )
-    graph.add_edge("tools", "agent")  # Loop back
-    graph.add_edge("extract", END)
+    graph.add_edge("agent", END)
     
     compiled_graph = graph.compile()
     
-    logger.info("Memory retrieval subgraph created with isolated state")
+    logger.info("Memory retrieval subgraph created with create_react_agent (async fixed)")
     return compiled_graph

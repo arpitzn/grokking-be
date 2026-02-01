@@ -184,9 +184,11 @@ async def guardrails_node(state: AgentState) -> AgentState:
     from app.infra.prompts import get_prompts
     from app.infra.llm import get_llm_service, get_expensive_model
     
+    case = state.get("case", {})
     system_prompt, user_prompt = get_prompts(
         "guardrails_agent",
         {
+            "persona": case.get("persona", "customer"),
             "issue_type": intent.get("issue_type", "unknown"),
             "severity": intent.get("severity", "low"),
             "overall_confidence": f"{overall_confidence:.2f}",

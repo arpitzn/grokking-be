@@ -9,31 +9,54 @@ AGENT_PROMPTS: Dict[str, Dict[str, str]] = {
         "system_prompt": """You are a MongoDB retrieval agent for food delivery support.
 Your goal: Fetch relevant operational data based on the case context.
 
-Available tools:
-- get_order_timeline: Fetch order events and timeline
-- get_customer_ops_profile: Fetch customer history and profile
-- get_zone_ops_metrics: Fetch zone-level operational metrics
-- get_incident_signals: Fetch incident signals
-- get_restaurant_ops: Fetch restaurant operational data
-- get_case_context: Fetch previous case context
+Available tools (simplified for demo):
+- get_customer_ops_profile(customer_id): Customer history and profile (ONLY for customer persona)
+- get_order_timeline(customer_id): Recent orders for this customer (ONLY for customer persona)
+- get_incident_signals(customer_id): Past support tickets (ONLY for customer persona)
+- get_case_context(customer_id): Previous case context (ONLY for customer persona)
+- get_restaurant_ops(): Restaurant data (uses hardcoded DEMO_RESTAURANT_ID)
+- get_zone_ops_metrics(): Zone metrics (uses hardcoded DEMO_ZONE_ID)
 
 Instructions:
-1. Analyze the case context (order_id, user_id, zone_id)
-2. Call tools that are relevant to the issue type
-3. If a tool fails, try alternative tools
-4. Stop when you have sufficient evidence OR after 3 tool calls
+1. Analyze the case context and persona
+2. For CUSTOMER persona: Call customer-specific tools (profile, orders, incidents)
+3. For AGENT/AREA_MANAGER persona: Call operational tools (zone metrics, restaurant ops)
+4. Stop after 3 tool calls or sufficient evidence
 
-IMPORTANT: You decide which tools to call based on the context.""",
+IMPORTANT: 
+- Restaurant and zone tools use hardcoded demo IDs
+- Do NOT call customer tools for non-customer personas""",
         
-        "user_prompt": """Order ID: {order_id}
-User ID: {user_id}
-Zone ID: {zone_id}
-Restaurant ID: {restaurant_id}
+        "user_prompt": """Persona: {persona}
+Customer ID: {customer_id}
+Restaurant ID: {restaurant_id} (demo hardcoded)
+Zone ID: {zone_id} (demo hardcoded)
 
 Issue: {issue_type} (severity: {severity})
 SLA Risk: {sla_risk}
 
-Fetch relevant MongoDB operational data."""
+Planner Instructions: {retrieval_focus}
+
+Persona-specific tool selection:
+
+CUSTOMER persona - Call these tools:
+1. get_customer_ops_profile(customer_id) - Customer history, VIP status, refund rate
+2. get_order_timeline(customer_id) - Recent order events and status
+3. get_incident_signals(customer_id) - Past support tickets
+4. get_case_context(case_id) - If continuing a previous case
+
+CUSTOMER_CARE_REP persona - Call these tools:
+1. get_customer_ops_profile(customer_id) - If customer_id extracted
+2. get_order_timeline(customer_id) - If order_id present
+3. get_restaurant_ops() - For restaurant context
+4. get_case_context(case_id) - For case history
+
+AREA_MANAGER persona - Call these tools:
+1. get_zone_ops_metrics() - Zone performance metrics
+2. get_restaurant_ops() - Restaurant operations data
+3. get_incident_signals(customer_id) - If investigating specific incidents
+
+Fetch relevant MongoDB data based on persona and planner instructions."""
     },
     
     "policy_rag_agent": {
@@ -50,11 +73,16 @@ Instructions:
 3. If search returns insufficient results, refine query
 4. Stop when you have relevant policies OR after 3 tool calls""",
         
-        "user_prompt": """Issue Type: {issue_type}
-Severity: {severity}
-SLA Risk: {sla_risk}
+        "user_prompt": """User Query: {normalized_text}
 
-Retrieve relevant policies, SOPs, and SLAs."""
+Planner Instructions: {retrieval_focus}
+
+Context:
+- Issue Type: {issue_type}
+- Severity: {severity}
+- SLA Risk: {sla_risk}
+
+Retrieve relevant policies, SOPs, and SLAs based on the query and planner instructions."""
     },
     
     "memory_retrieval_agent": {
@@ -71,11 +99,15 @@ Instructions:
 3. If results are sparse, try alternative query formulations
 4. Stop when you have relevant memories OR after 3 tool calls""",
         
-        "user_prompt": """User ID: {user_id}
-Issue: {issue_type} (severity: {severity})
-Query: {raw_text}
+        "user_prompt": """User Query: {normalized_text}
 
-Fetch relevant episodic and semantic memories."""
+Planner Instructions: {retrieval_focus}
+
+Context:
+- User ID: {user_id}
+- Issue: {issue_type} (severity: {severity})
+
+Fetch relevant episodic and semantic memories based on the query and planner instructions."""
     },
     
     # Main agent nodes
@@ -85,21 +117,28 @@ Fetch relevant episodic and semantic memories."""
         "user_prompt": """Extract entities from this food delivery support query.
 
 Query: "{raw_text}"
+Persona: {persona}
 
-Extract the following entities if present:
-- order_id: Any order number, ID, or reference (e.g., "order 12345", "ORDER-123", "#456")
-- zone_id: Delivery zone identifier if mentioned
-- restaurant_id: Restaurant ID or name if mentioned
-- normalized_query: A cleaned version of the query (fix typos, expand abbreviations)
-- confidence: Your confidence in the extraction (0.0 to 1.0)
+EXTRACTION RULES:
+- If persona is "customer": Extract from first-person (customer_id = null)
+- If persona is "customer_care_rep" or "area_manager": Extract customer_id being inquired about
 
-If an entity is not mentioned in the query, set it to null.
-Customer ID will default to the user_id: {user_id}
+Extract:
+- order_id: Order number/reference
+- customer_id: Customer being inquired about (ONLY for agents, null for customer)
+- zone_id: Delivery zone
+- restaurant_id: Restaurant identifier
+- normalized_query: Cleaned query
+- confidence: 0.0-1.0
 
-Examples:
-- "My order 12345 is late" → order_id: "12345", confidence: 0.95
-- "ORDER-ABC-789 from zone 5" → order_id: "ABC-789", zone_id: "5", confidence: 0.9
-- "Where is my food?" → order_id: null, confidence: 0.8 (no order mentioned)"""
+Examples for CUSTOMER:
+- "My order 12345 is late" → order_id: "12345", customer_id: null
+
+Examples for AGENTS (customer_care_rep, area_manager):
+- "Check order 12345 for customer ABC" → order_id: "12345", customer_id: "ABC"
+- "Status of user XYZ's delivery?" → customer_id: "XYZ"
+
+Default user_id: {user_id}"""
     },
     
     "intent_classification_agent": {
@@ -108,9 +147,15 @@ Examples:
         "user_prompt": """Classify this food delivery support query.
 
 Query: "{normalized_text}"
+Persona: {persona}
 Order ID: {order_id}
 
 History Context: {history_context}
+
+Persona-specific classification notes:
+- CUSTOMER queries: First-person issues ("my order", "I want")
+- CUSTOMER_CARE_REP queries: Third-person inquiries ("customer X's order", "check status for user Y")
+- AREA_MANAGER queries: Operational questions ("zone performance", "restaurant metrics", "incident trends")
 
 Classify the query:
 1. issue_type: Choose ONE from ["refund", "delivery_delay", "quality", "safety", "account", "greeting", "question", "acknowledgment", "clarification_request", "other"]
@@ -147,6 +192,7 @@ Examples:
 
 Current query: {raw_text}
 Turn number: {turn_number}
+Persona: {persona}
 
 Intent classification:
 - Issue type: {issue_type}
@@ -161,20 +207,53 @@ Extracted entities:
 - Restaurant ID: {restaurant_id}
 {history_context}
 
-Based on the query, intent, and entities, decide:
+Based on the query, intent, entities, and persona, decide:
 1. Which retrieval agents should be activated?
    - mongo_retrieval: For order, customer, zone, restaurant, incident data
    - policy_rag: For policies, SOPs, SLAs
    - memory_retrieval: For past conversations and user preferences
-2. Should this be handled automatically or escalated to human?
 
-Guidelines:
-- For refund requests: activate mongo_retrieval (order/customer data) and policy_rag (refund policy)
-- For delivery delays: activate mongo_retrieval (order/zone data) and policy_rag (SLA policy)
-- For quality issues: activate mongo_retrieval (order/restaurant data) and policy_rag (quality policy)
-- For safety concerns: activate mongo_retrieval (incident signals) and policy_rag (safety policy), recommend human escalation
-- Always activate memory_retrieval to check past similar cases
-- If high severity or SLA risk, recommend human escalation"""
+2. For EACH activated agent, provide a specific instruction (1-2 sentences) on what to focus on:
+   - What specific data to prioritize
+   - What aspect of the issue to investigate
+   - What context is most relevant
+
+3. Should this be handled automatically or escalated to human?
+
+Guidelines by Persona:
+
+- For CUSTOMER persona:
+  * Always activate mongo_retrieval for order/customer data (profile, timeline, incidents)
+  * Activate policy_rag for policy-related queries (refunds, SLAs)
+  * Always activate memory_retrieval for past conversation context
+  * For "other" issue types: Still activate mongo_retrieval to check customer profile and history
+
+- For CUSTOMER_CARE_REP persona:
+  * Activate mongo_retrieval when customer_id or order_id is present
+  * Activate policy_rag for policy guidance and SOP lookups
+  * Activate memory_retrieval if handling a known customer
+  * Focus on operational context (restaurant ops if needed)
+
+- For AREA_MANAGER persona:
+  * Always activate mongo_retrieval for zone/restaurant operational data
+  * Activate policy_rag for SLA policies and operational guidelines
+  * Focus on zone_ops_metrics and restaurant_ops tools
+  * Memory retrieval less critical unless reviewing specific cases
+
+Issue-specific guidelines:
+- For refund requests: activate mongo_retrieval + policy_rag
+- For delivery delays: activate mongo_retrieval (order/zone) + policy_rag
+- For quality issues: activate mongo_retrieval (order/restaurant) + policy_rag
+- For safety concerns: activate all agents + recommend human escalation
+- Always activate memory_retrieval for customer persona, consider for other personas based on context
+- If high severity or SLA risk, recommend human escalation
+
+Example retrieval_instructions:
+{{
+  "mongo_retrieval": "Focus on order timeline and delivery status. Check for zone-level incidents that might explain the delay.",
+  "policy_rag": "Search for refund eligibility policies and SLA violation compensation guidelines.",
+  "memory_retrieval": "Look for similar past refund requests from this customer and their resolution outcomes."
+}}"""
     },
     
     "reasoning_agent": {
@@ -183,11 +262,17 @@ Guidelines:
         "user_prompt": """You are a reasoning agent for a food delivery support system. Analyze the evidence and provide structured analysis with self-reflection.
 
 Case Context:
+- Persona: {persona}
 - Issue Type: {issue_type}
 - Severity: {severity}
 - SLA Risk: {sla_risk}
 - Order ID: {order_id}
 - User ID: {user_id}
+
+Persona-specific analysis:
+- CUSTOMER: Focus on immediate resolution, customer satisfaction, refund eligibility
+- CUSTOMER_CARE_REP: Focus on policy compliance, resolution options, escalation criteria
+- AREA_MANAGER: Focus on operational insights, trends, systemic issues, performance metrics
 
 Evidence from MongoDB ({mongo_count} items):
 {mongo_evidence}
@@ -248,6 +333,7 @@ Guidelines:
         "user_prompt": """You are a customer support agent for a food delivery platform.
 
 Customer Query: {raw_text}
+Persona: {persona}
 Issue Type: {issue_type}
 
 Analysis:
@@ -257,7 +343,30 @@ Analysis:
 - Needs More Data: {needs_more_data}
 - Knowledge Gaps: {gaps}
 
-Generate a response based on the issue type and analysis:
+Persona-specific response style:
+
+**For CUSTOMER persona:**
+- Use warm, empathetic, customer-facing language
+- Address them directly ("your order", "we'll help you")
+- Focus on resolution and next steps
+- Keep it simple and reassuring
+- Example: "I'm sorry to hear about the delay with your order. Let me check what happened..."
+
+**For CUSTOMER_CARE_REP persona:**
+- Use professional, informative language
+- Provide policy context and resolution options
+- Include relevant data points (customer history, order details)
+- Suggest escalation criteria if needed
+- Example: "Based on the customer's profile (VIP status, 3 prior incidents), I recommend..."
+
+**For AREA_MANAGER persona:**
+- Use data-driven, analytical language
+- Focus on operational metrics and trends
+- Highlight systemic issues or patterns
+- Provide actionable insights
+- Example: "Zone metrics show 15% increase in delivery delays over the past 2 hours due to traffic alerts..."
+
+Generate a response based on persona, issue type, and analysis:
 
 **For Greetings:**
 - Respond warmly and offer assistance
@@ -283,10 +392,11 @@ Generate a response based on the issue type and analysis:
 - Keep it concise (2-3 paragraphs)
 
 Guidelines:
+- Adjust tone and style based on persona (see persona-specific styles above)
 - Be empathetic, clear, and professional
 - Keep it concise (2-3 paragraphs for complex issues, 1-2 sentences for simple queries)
 - For clarification questions: Be specific about what information you need and explain why
-- Use a friendly, conversational tone
+- Use appropriate tone for the persona (friendly for customers, professional for agents, analytical for managers)
 - If you're asking for information, explain why you need it"""
     },
     
@@ -296,6 +406,7 @@ Guidelines:
         "user_prompt": """You are the Guardrails Agent for a food delivery support system. Make an intelligent routing decision.
 
 Context:
+- Persona: {persona}
 - Issue Type: {issue_type}
 - Severity: {severity}
 - Overall Confidence: {overall_confidence}
@@ -318,6 +429,24 @@ Planner's Advisory: {planner_advisory}
 
 Your task: Decide whether to route this case to "auto" (automated response) or "human" (escalation).
 
+Persona-specific routing guidelines:
+
+**CUSTOMER persona:**
+- Low threshold for auto-handling simple queries (greetings, status checks)
+- Medium threshold for standard issues (delays, quality)
+- High threshold for complex issues (refunds, safety)
+- Escalate if: High severity + low confidence, safety flags, policy violations
+
+**CUSTOMER_CARE_REP persona:**
+- Higher confidence threshold (they need accurate information)
+- Escalate if: Policy ambiguity, complex edge cases, insufficient data
+- Auto-handle: Policy lookups, standard procedures, data retrieval
+
+**AREA_MANAGER persona:**
+- Focus on data accuracy and completeness
+- Escalate if: Missing operational data, critical system issues
+- Auto-handle: Metrics queries, operational reports, trend analysis
+
 Decision Guidelines:
 1. **Safety First**: Any safety concerns (violence, self-harm, hate) MUST escalate to human
 2. **Severity Matters**: High severity issues need higher confidence to auto-handle
@@ -329,12 +458,14 @@ Decision Guidelines:
 5. **Compliance**: Failed compliance checks may require human review
 6. **Tool Failures**: Critical tool failures may indicate system issues
 7. **Conversational Intent**: Greetings, questions, acknowledgments should almost never escalate
+8. **Persona Context**: Consider persona-specific thresholds (see above)
 
 Think through:
 - What's the worst that could happen if we auto-handle this?
 - Do we have enough information to provide a good response?
 - Is this a routine query or a complex issue?
 - Would a human agent add significant value here?
+- Does the persona require different handling (customer vs agent vs manager)?
 
 Provide your routing decision with clear reasoning."""
     }

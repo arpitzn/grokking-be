@@ -103,9 +103,25 @@ async def search_policies(query: str, filters: Dict, top_k: int) -> PolicyEviden
 # LangChain BaseTool wrapper
 class SearchPoliciesInput(BaseModel):
     """Input schema for search_policies tool"""
-    query: str = Field(description="Search query string for policy documents")
-    filters: Dict = Field(default={}, description="Filters dictionary (e.g., {'priority': 'high', 'category': 'policy', 'issue_type': ['refund']})")
-    top_k: int = Field(default=5, description="Number of top results to return")
+    query: str = Field(
+        description="Search query. Example: 'refund policy for late deliveries'"
+    )
+    filters: Dict = Field(
+        default_factory=dict,
+        description=(
+            "Optional filters:\n"
+            "- priority: 'high', 'medium', 'low'\n"
+            "- category: 'policy', 'guideline'\n"
+            "- issue_type: ['refund', 'delivery']\n"
+            "Example: {'priority': 'high'}"
+        )
+    )
+    top_k: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Number of results (1-20, default: 5)"
+    )
 
 
 class SearchPoliciesTool(BaseTool):

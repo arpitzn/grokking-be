@@ -122,11 +122,11 @@ class ReadEpisodicMemoryTool(BaseTool):
     description: str = "Reads episodic memories (past incidents/cases) from Mem0. Returns semantically similar past experiences for the customer."
     args_schema: Type[BaseModel] = ReadEpisodicMemoryInput
     
-    async def _arun(self, user_id: str, query: str, top_k: int) -> str:
+    async def _arun(self, user_id: str, query: str, top_k: int=5) -> str:
         """Async execution - returns JSON string of MemoryEvidenceEnvelope"""
         result = await read_episodic_memory(user_id, query, top_k)
         return result.model_dump_json()
     
-    def _run(self, user_id: str, query: str, top_k: int) -> dict:
+    def _run(self, user_id: str, query: str, top_k: int=5) -> dict:
         """Sync execution - not supported for async tools"""
         raise NotImplementedError("This tool only supports async execution")
