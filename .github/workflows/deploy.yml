@@ -28,7 +28,6 @@ jobs:
           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
           echo "TIMESTAMP=${TIMESTAMP}" >> $GITHUB_ENV
           echo "IMAGE_TAG=${TIMESTAMP}" >> $GITHUB_ENV
-
       - name: Setup SSH Key
         run: |
           mkdir -p ~/.ssh
@@ -44,7 +43,6 @@ jobs:
           head -1 ~/.ssh/grokking.pem
           tail -1 ~/.ssh/grokking.pem
           ssh-keygen -l -f ~/.ssh/grokking.pem
-
       - name: Build and Deploy on EC2
         run: |
           ssh -T -o StrictHostKeyChecking=no -i ~/.ssh/grokking.pem ${{ env.EC2_USER }}@${{ env.EC2_HOST }} << 'ENDSSH'
@@ -82,18 +80,24 @@ jobs:
             echo "⏳ Waiting for container to be ready..."
             sleep 5
             
-            echo "🧪 Running promptfoo evaluations..."
-            docker exec ${{ env.CONTAINER_NAME }} npm run promptfoo:eval:planner || echo "⚠️ planner eval failed or not available"
-            docker exec ${{ env.CONTAINER_NAME }} npm run promptfoo:eval:executor || echo "⚠️ executor eval failed or not available"
+            echo "🧪 Running promptfoo commands inside Docker container..."
+            
+            echo "▶️ Running planner evaluation..."
+            docker exec ${{ env.CONTAINER_NAME }} npm run promptfoo:eval:planner || echo "⚠️ planner eval failed"
+            
+            echo "▶️ Running executor evaluation..."
+            docker exec ${{ env.CONTAINER_NAME }} npm run promptfoo:eval:executor || echo "⚠️ executor eval failed"
             
             echo "👀 Starting promptfoo view (background on port 15500)..."
-            docker exec -d ${{ env.CONTAINER_NAME }} npm run promptfoo:view || echo "⚠️ promptfoo view failed or not available"
+            docker exec -d ${{ env.CONTAINER_NAME }} npm run promptfoo:view || echo "⚠️ promptfoo view failed"
+            
+            echo "✅ All promptfoo commands executed inside container!"
             
             echo "🧹 Cleaning up..."
+            cd /home/ubuntu
             rm -rf $BUILD_DIR
             docker image prune -f
           ENDSSH
-
       - name: Cleanup SSH Key
         if: always()
         run: rm -f ~/.ssh/grokking.pem
