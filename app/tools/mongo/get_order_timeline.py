@@ -9,13 +9,14 @@ Observability: Emits tool_call_started, tool_call_completed, tool_call_failed ev
 from datetime import datetime, timezone
 from typing import List, Type
 
+from bson import Binary
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from app.models.evidence import OrderEvidenceEnvelope, ToolResult, ToolStatus
 from app.models.tool_spec import ToolCriticality, ToolSpec
 from app.utils.tool_observability import emit_tool_event
-from app.utils.uuid_helpers import uuid_to_binary, is_uuid_string
+from app.utils.uuid_helpers import uuid_to_binary, is_uuid_string, binary_to_uuid
 from app.infra.mongo import get_mongodb_client
 
 # Tool specification
@@ -70,9 +71,6 @@ async def get_order_timeline(order_id: str, include: List[str]) -> OrderEvidence
         
         # Transform MongoDB document to tool output format
         # Convert Binary UUIDs to strings for output
-        from app.utils.uuid_helpers import binary_to_uuid
-        from bson import Binary
-        
         order_id_val = order_doc.get("order_id")
         if isinstance(order_id_val, Binary):
             order_id_val = binary_to_uuid(order_id_val)

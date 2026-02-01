@@ -9,13 +9,14 @@ Observability: Emits tool_call_started, tool_call_completed, tool_call_failed ev
 from datetime import datetime, timezone
 from typing import Type
 
+from bson import Binary
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from app.models.evidence import CustomerEvidenceEnvelope, ToolResult, ToolStatus
 from app.models.tool_spec import ToolCriticality, ToolSpec
 from app.utils.tool_observability import emit_tool_event
-from app.utils.uuid_helpers import uuid_to_binary, is_uuid_string
+from app.utils.uuid_helpers import uuid_to_binary, is_uuid_string, binary_to_uuid
 from app.infra.mongo import get_mongodb_client
 
 # Tool specification
@@ -67,7 +68,6 @@ async def get_customer_ops_profile(customer_id: str) -> CustomerEvidenceEnvelope
         
         # Transform MongoDB document to tool output format
         # Convert _id Binary UUID to string for output
-        from app.utils.uuid_helpers import binary_to_uuid
         user_id_str = binary_to_uuid(user_doc.get("_id")) if isinstance(user_doc.get("_id"), Binary) else str(user_doc.get("_id"))
         
         profile_data = {

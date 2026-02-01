@@ -9,12 +9,14 @@ Observability: Emits tool_call_started, tool_call_completed, tool_call_failed ev
 from datetime import datetime, timezone
 from typing import Type
 
+from bson import Binary
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from app.models.evidence import CaseEvidenceEnvelope, ToolResult, ToolStatus
 from app.models.tool_spec import ToolCriticality, ToolSpec
 from app.utils.tool_observability import emit_tool_event
+from app.utils.uuid_helpers import uuid_to_binary, is_uuid_string, binary_to_uuid
 from app.infra.mongo import get_mongodb_client
 
 # Tool specification
