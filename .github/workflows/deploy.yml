@@ -29,28 +29,20 @@ jobs:
           echo "IMAGE_TAG=${TIMESTAMP}" >> $GITHUB_ENV
 
       - name: Setup SSH Key
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
         run: |
           mkdir -p ~/.ssh
           
-          # Write key using printf to preserve formatting
-          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/grokking.pem
-          
-          # Remove Windows line endings if present
-          sed -i 's/\r$//' ~/.ssh/grokking.pem
+          # Decode Base64 encoded SSH key
+          echo "${{ secrets.EC2_SSH_KEY_B64 }}" | base64 -d > ~/.ssh/grokking.pem
           
           chmod 600 ~/.ssh/grokking.pem
           ssh-keyscan -H ${{ env.EC2_HOST }} >> ~/.ssh/known_hosts
           
           # Verify key format
-          echo "🔑 Verifying SSH key format..."
-          echo "First line: $(head -1 ~/.ssh/grokking.pem)"
-          echo "Last line: $(tail -1 ~/.ssh/grokking.pem)"
-          echo "Line count: $(wc -l < ~/.ssh/grokking.pem)"
-          
-          # Test key validity
-          ssh-keygen -l -f ~/.ssh/grokking.pem || echo "⚠️ Key validation failed"
+          echo "🔑 Verifying SSH key..."
+          head -1 ~/.ssh/grokking.pem
+          tail -1 ~/.ssh/grokking.pem
+          ssh-keygen -l -f ~/.ssh/grokking.pem
 
       - name: Build and Deploy on EC2
         run: |
