@@ -14,8 +14,8 @@ class ElasticsearchClient:
     def __init__(self):
         connection_params = {
             "hosts": [settings.elasticsearch_node],
-            "request_timeout": 3.0,
-            "max_retries": 2,
+            "request_timeout": 30.0,  # Increased from 3.0 for Elasticsearch Cloud
+            "max_retries": 5,  # Increased from 2 for better resilience
             "retry_on_timeout": True,
         }
         
