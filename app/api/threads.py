@@ -1,7 +1,7 @@
 """Thread/conversation endpoints"""
 from fastapi import APIRouter, HTTPException
 from app.models.schemas import ConversationListItem, MessageItem
-from app.services.conversation import list_threads, get_messages
+from app.services.conversation import list_threads, get_messages, delete_conversation
 from app.utils.logging_utils import (
     log_request_start, log_request_end, log_db_operation, log_error_with_context
 )
@@ -77,5 +77,34 @@ async def get_conversation_messages(conversation_id: str, limit: int = 10, offse
         log_error_with_context(
             logger, e, "get_messages_error",
             context={"conversation_id": conversation_id, "limit": limit, "offset": offset}
+        )
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/{conversation_id}")
+async def delete_conversation_endpoint(conversation_id: str):
+    """Delete a conversation and all related records"""
+    start_time = time.time()
+    log_request_start(logger, "DELETE", f"/threads/{conversation_id}")
+    
+    try:
+        deleted = await delete_conversation(conversation_id)
+        
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        
+        log_request_end(
+            logger, "DELETE", f"/threads/{conversation_id}",
+            status_code=200,
+            duration_ms=(time.time() - start_time) * 1000
+        )
+        
+        return {"success": True, "conversation_id": conversation_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error_with_context(
+            logger, e, "delete_conversation_error",
+            context={"conversation_id": conversation_id}
         )
         raise HTTPException(status_code=500, detail=str(e))
