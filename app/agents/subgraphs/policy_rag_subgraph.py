@@ -108,7 +108,9 @@ def create_policy_rag_subgraph():
         
         return state
     
-    # Wrap in StateGraph for input/output schema compatibility
+    # SUBGRAPH ISOLATION: Input/output schemas prevent state pollution
+    # Private messages stay in subgraph, only evidence returned to parent
+    # Enables clean agent boundaries and parallel execution
     graph = StateGraph(
         PolicyRetrievalState,
         input=PolicyRetrievalInputState,

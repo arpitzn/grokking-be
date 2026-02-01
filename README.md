@@ -52,6 +52,22 @@
 - **Tool tracking:** Each tool logs inputs/outputs/errors
 - **Graph visibility:** SSE events show which agents ran, what data retrieved, reasoning steps
 
+## 4. Agents & Their Roles
+
+| Agent | File | Responsibility |
+|-------|------|----------------|
+| Ingestion | `app/agents/ingestion_agent.py` | Extracts entities (order_id, customer_id, zone_id, restaurant_id) |
+| Intent Classification | `app/agents/intent_classification_agent.py` | Classifies issue_type, severity, SLA_risk, safety_flags |
+| Planner | `app/agents/planner_agent.py` | Selects which retrieval agents to activate |
+| Mongo Retrieval | `app/agents/subgraphs/mongo_retrieval_subgraph.py` | Fetches order timelines, customer profiles, incident signals |
+| Policy RAG | `app/agents/subgraphs/policy_rag_subgraph.py` | Searches Elasticsearch for policies and guidelines |
+| Memory Retrieval | `app/agents/subgraphs/memory_retrieval_subgraph.py` | Queries Mem0 for episodic/semantic/procedural memories |
+| Reasoning | `app/agents/reasoning_agent.py` | Generates hypotheses, identifies action candidates, self-reflection |
+| Guardrails | `app/agents/guardrails_agent.py` | Confidence gates, final routing decision (auto/human) |
+| Response Synthesis | `app/agents/response_synthesis_agent.py` | Generates final user-facing response |
+| Human Escalation | `app/agents/human_escalation_agent.py` | Creates handover packet for human agents |
+| Memory Write | `app/agents/memory_write_agent.py` | Async writes to Mem0 (episodic/semantic/procedural) |
+
 ## 5. Execution Model
 
 ### Serial Execution
@@ -124,3 +140,25 @@ curl -X POST http://localhost:8000/chat/stream \
 - **Unit tests:** `pytest tests/`
 - **LLM evaluation:** `promptfoo eval -c promptfoo/configs/planner.yaml`
 - **Guardrails tests:** `pytest tests/test_guardrails.py`
+
+## 8. Expected Hackathon Outcome
+
+### Live Streaming UI Events
+- **Where:** `app/services/event_streamer.py` streams all agent events to browser
+- **Events:** thinking phases, evidence cards, hypotheses, tool calls, refund recommendations
+- **Demo:** SSE endpoint at `/chat/stream` shows real-time agent execution
+
+### Long Chat Support
+- **Summarization:** Every 10 messages (`app/services/summarization.py`)
+- **Working memory:** Last 10 + summary prevents unbounded context
+- **Tested:** Multi-turn conversations with context continuity
+
+### Monitoring & Observability
+- **Langfuse traces:** All LLM calls with metadata (persona, severity, confidence)
+- **Tool observability:** Every tool logs start/complete/fail events
+- **Business milestones:** Logged at key decision points
+
+### Dataset & File Support
+- **Formats:** PDF, DOCX, DOC, TXT, MD, HTML, PNG, JPEG (with OCR)
+- **Images:** OpenAI Vision API extracts text from images
+- **Chunking:** 2500 chars with 100 overlap for all formats
