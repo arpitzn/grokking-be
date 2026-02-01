@@ -66,10 +66,11 @@ jobs:
             docker stop ${{ env.CONTAINER_NAME }} 2>/dev/null || true
             docker rm ${{ env.CONTAINER_NAME }} 2>/dev/null || true
             
-            echo "🚀 Starting new container..."
+            echo "🚀 Starting new container with .env..."
             docker run -d \
               --name ${{ env.CONTAINER_NAME }} \
               --restart unless-stopped \
+              --env-file /home/ubuntu/grokking-be/.env \
               -p ${{ env.CONTAINER_PORT }}:${{ env.CONTAINER_PORT }} \
               ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
             
