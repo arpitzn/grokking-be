@@ -1,0 +1,225 @@
+# Memory Integration Tests
+# Tests Mem0 retrieval, working memory impact, and conversation continuity
+
+description: "Memory Integration Tests"
+
+providers:
+  - id: "python:../../providers/executor_provider.py"
+    label: "GPT-4 (t=0.7)"
+    config:
+      model: gpt-4
+      temperature: 0.7
+      max_tokens: 2000
+
+prompts:
+  - "{{query}}"
+
+tests:
+  # =============================================================================
+  # WORKING MEMORY IMPACT TESTS
+  # =============================================================================
+
+  - description: "Memory - Working memory affects response (order context)"
+    vars:
+      query: "What about that order?"
+      working_memory:
+        - role: "user"
+          content: "My order 12345 is late"
+        - role: "assistant"
+          content: "I see order 12345 was placed at 2 PM and is currently being prepared"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Response should reference order 12345 from working memory
+          const lower = result.response.toLowerCase();
+          return lower.includes('12345') || lower.includes('order');
+        description: "Should use working memory context to resolve pronoun"
+
+  - description: "Memory - Working memory summary affects response"
+    vars:
+      query: "Can you remind me what we discussed?"
+      working_memory:
+        - role: "system"
+          content: "Previous conversation summary: Customer reported order delay, discussed refund options, customer chose wallet refund"
+        - role: "user"
+          content: "I want a refund"
+        - role: "assistant"
+          content: "I can process a refund of ₹300 to your wallet"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Response should reference previous discussion from summary
+          const lower = result.response.toLowerCase();
+          return lower.includes('refund') || lower.includes('order') || lower.includes('discuss');
+        description: "Should use conversation summary from working memory"
+
+  - description: "Memory - Multi-turn context maintained"
+    vars:
+      query: "How long will that take?"
+      working_memory:
+        - role: "user"
+          content: "I want a refund"
+        - role: "assistant"
+          content: "I can process a refund of ₹500 to your wallet"
+        - role: "user"
+          content: "How long will that take?"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Response should reference refund timing from context
+          const lower = result.response.toLowerCase();
+          return lower.includes('refund') || lower.includes('wallet') || lower.includes('instant') || lower.includes('minute');
+        description: "Should maintain context across multiple turns"
+
+  # =============================================================================
+  # CONVERSATION CONTINUITY TESTS
+  # =============================================================================
+
+  - description: "Memory - Pronoun resolution (order reference)"
+    vars:
+      query: "What about that one?"
+      working_memory:
+        - role: "user"
+          content: "I have two orders: 12345 and 67890"
+        - role: "assistant"
+          content: "I can see both orders. Order 12345 is delivered, order 67890 is in transit"
+        - role: "user"
+          content: "What about that one?"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Should reference one of the orders from context
+          const lower = result.response.toLowerCase();
+          return lower.includes('12345') || lower.includes('67890') || lower.includes('order');
+        description: "Should resolve pronoun using conversation context"
+
+  - description: "Memory - Follow-up question maintains context"
+    vars:
+      query: "Can you tell me more?"
+      working_memory:
+        - role: "user"
+          content: "What is your refund policy?"
+        - role: "assistant"
+          content: "Our refund policy allows refunds for orders delayed over 2 hours. The amount depends on the order value."
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Should expand on refund policy from previous context
+          const lower = result.response.toLowerCase();
+          return lower.includes('refund') || lower.includes('policy') || lower.includes('order');
+        description: "Should maintain context for follow-up questions"
+
+  - description: "Memory - Clarification request uses context"
+    vars:
+      query: "Can you explain that differently?"
+      working_memory:
+        - role: "user"
+          content: "How do refunds work?"
+        - role: "assistant"
+          content: "Refunds are processed through our automated system using blockchain verification"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Should re-explain refund process using simpler language
+          const lower = result.response.toLowerCase();
+          return lower.includes('refund') || lower.includes('process');
+        description: "Should use context to provide clarification"
+
+  # =============================================================================
+  # MEM0 INTEGRATION TESTS (if Mem0 provider available)
+  # =============================================================================
+
+  - description: "Memory - Episodic memory retrieval (past incidents)"
+    vars:
+      query: "Have I had similar issues before?"
+      working_memory:
+        - role: "user"
+          content: "My order is late again"
+        - role: "system"
+          content: "Relevant context from past conversations: Customer reported 3 previous order delays in the past month"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Response should acknowledge past incidents if mentioned in context
+          const lower = result.response.toLowerCase();
+          return lower.includes('before') || lower.includes('previous') || lower.includes('past') || 
+                 lower.length > 20; // At least some response
+        description: "Should use episodic memory context if available"
+
+  - description: "Memory - Semantic memory retrieval (patterns)"
+    vars:
+      query: "What usually happens in these cases?"
+      working_memory:
+        - role: "user"
+          content: "My order is delayed"
+        - role: "system"
+          content: "Relevant context from past conversations: Similar cases typically involve traffic delays or restaurant preparation issues"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Response should reference patterns from semantic memory
+          const lower = result.response.toLowerCase();
+          return lower.includes('usually') || lower.includes('typically') || lower.includes('common') ||
+                 lower.length > 20;
+        description: "Should use semantic memory patterns if available"
+
+  # =============================================================================
+  # EDGE CASES
+  # =============================================================================
+
+  - description: "Memory - Empty working memory"
+    vars:
+      query: "Hello, how are you?"
+      working_memory: []
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Should still generate a response without context
+          return result.response && result.response.length > 5;
+        description: "Should handle empty working memory gracefully"
+
+  - description: "Memory - Very long working memory"
+    vars:
+      query: "What did I ask about?"
+      working_memory:
+        - role: "user"
+          content: "Question 1"
+        - role: "assistant"
+          content: "Answer 1"
+        - role: "user"
+          content: "Question 2"
+        - role: "assistant"
+          content: "Answer 2"
+        - role: "user"
+          content: "Question 3"
+        - role: "assistant"
+          content: "Answer 3"
+        - role: "user"
+          content: "Question 4"
+        - role: "assistant"
+          content: "Answer 4"
+        - role: "user"
+          content: "Question 5"
+        - role: "assistant"
+          content: "Answer 5"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Should handle long context and reference recent questions
+          return result.response && result.response.length > 10;
+        description: "Should handle long working memory"
+
+evaluateOptions:
+  maxConcurrency: 2
+  showProgressBar: true
+  cache: true

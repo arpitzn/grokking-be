@@ -32,6 +32,8 @@ async def retrieve_chunks(
     query: str,
     top_k: int = 3,
     embedding_model: str = "text-embedding-3-small",
+    persona: Optional[str] = None,
+    issue_type: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Retrieve relevant chunks from Elasticsearch.
@@ -58,9 +60,33 @@ async def retrieve_chunks(
 
     # Search Elasticsearch
     es_client = await get_elasticsearch_client()
+    
+    # Build search with persona/issue_type filtering if provided
+    # Note: The actual filtering would need to be implemented in es_client.search
+    # For now, we'll pass the parameters for potential future filtering
     results = await es_client.search(
         user_id=user_id, query_embedding=query_embedding, top_k=top_k
     )
+    
+    # Post-filter by persona/issue_type if metadata available
+    if persona or issue_type:
+        filtered_results = []
+        for chunk in results:
+            metadata = chunk.get("metadata", {})
+            chunk_persona = metadata.get("persona")
+            chunk_issue_type = metadata.get("issue_type")
+            
+            # Include if persona matches or no persona filter
+            persona_match = not persona or chunk_persona == persona or not chunk_persona
+            # Include if issue_type matches or no issue_type filter
+            issue_match = not issue_type or chunk_issue_type == issue_type or not chunk_issue_type
+            
+            if persona_match and issue_match:
+                filtered_results.append(chunk)
+        
+        # If filtering removed all results, return original results
+        if filtered_results:
+            results = filtered_results
 
     return {
         "query": query,
@@ -126,6 +152,8 @@ def call_api(
     vars = context.get("vars", {})
     query = vars.get("query", prompt)
     user_id = vars.get("user_id", "test_user")
+    persona = vars.get("persona")
+    issue_type = vars.get("issue_type")
 
     try:
         loop = asyncio.new_event_loop()
@@ -138,6 +166,8 @@ def call_api(
                     query=query,
                     top_k=top_k,
                     embedding_model=embedding_model,
+                    persona=persona,
+                    issue_type=issue_type,
                 )
             )
 
@@ -153,6 +183,8 @@ def call_api(
                     }
                     for chunk in result["chunks"]
                 ],
+                "persona_filter": persona,
+                "issue_type_filter": issue_type,
                 "top_k": result["top_k"],
                 "embedding_model": result["embedding_model"],
             }

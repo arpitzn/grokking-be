@@ -46,6 +46,7 @@ async def classify_query(
     model: str = "gpt-3.5-turbo",
     temperature: float = 0.3,
     prompt_template: Optional[str] = None,
+    persona: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Classify a user query into knowledge source categories.
@@ -74,29 +75,42 @@ async def classify_query(
         planner_prompt = prompt_template.replace("{{query}}", query).replace(
             "{{context}}", working_memory_text
         )
+        if persona:
+            planner_prompt = planner_prompt.replace("{{persona}}", persona)
     else:
-        planner_prompt = f"""You are a planning agent that classifies user queries and creates execution plans.
+        # Add persona context to prompt if provided
+        persona_context = ""
+        if persona:
+            persona_context = f"\n\nPersona: {persona}\n"
+            if persona == "end_customer":
+                persona_context += "Note: This is a customer query. Focus on customer-facing policies and order information.\n"
+            elif persona == "customer_care_rep":
+                persona_context += "Note: This is a customer care representative query. Focus on SOPs, policies, and operational data.\n"
+            elif persona == "area_manager":
+                persona_context += "Note: This is an area manager query. Focus on operational metrics, zone data, and analytics.\n"
+        
+        planner_prompt = f"""You are a planning agent that classifies user queries and creates execution plans for a food delivery support system.
 
 Given the user query and conversation context, determine the appropriate knowledge source:
 
-1. **INTERNAL** - Use internal RAG (company documents) if:
-   - Query references company-specific information (meetings, reports, policies)
-   - Query mentions internal people, projects, or events
-   - Query asks about uploaded documents
-   - Examples: "What did our director say in yesterday's call?", "What's in our Q4 report?"
+1. **INTERNAL** - Use internal RAG (company documents, policies, SOPs) if:
+   - Query references company-specific information (policies, SOPs, SLAs, refund rules)
+   - Query asks about food delivery operations (orders, refunds, delivery delays, quality issues)
+   - Query mentions internal processes or procedures
+   - Examples: "What is the refund policy?", "How do I handle a delayed order?", "What are the SLA guidelines?"
 
 2. **EXTERNAL** - Use external search (web search) if:
-   - Query asks about public facts, current events, general knowledge
+   - Query asks about public facts, current events, general knowledge unrelated to food delivery
    - Query references well-known people, places, or historical events
-   - Query needs real-time or recent information
+   - Query needs real-time or recent information outside company knowledge
    - Examples: "Who is the President of India in 2020?", "What is the capital of France?"
 
 3. **NONE** - No retrieval needed if:
-   - Query is conversational (greetings, clarifications)
+   - Query is conversational (greetings, clarifications, acknowledgments)
    - Query can be answered from conversation history alone
-   - Examples: "Thanks!", "Can you explain that differently?"
+   - Examples: "Thanks!", "Can you explain that differently?", "Hello!"
 
-Conversation context:
+{persona_context}Conversation context:
 {working_memory_text}
 
 User query: {query}
@@ -158,6 +172,7 @@ def call_api(
     query = vars.get("query", prompt)
     working_memory = vars.get("working_memory", [])
     prompt_template = vars.get("prompt_template")
+    persona = vars.get("persona")
 
     # If working_memory is a string (JSON), parse it
     if isinstance(working_memory, str):
@@ -177,6 +192,7 @@ def call_api(
                 model=model,
                 temperature=temperature,
                 prompt_template=prompt_template,
+                persona=persona,
             )
         )
         loop.close()

@@ -51,7 +51,7 @@ async def validate_input(message: str, user_id: str = "test_user") -> Dict[str, 
 
 
 async def validate_output(
-    response: str, conversation_id: str = "test_conv", user_id: str = "test_user"
+    response: str, conversation_id: str = "test_conv", user_id: str = "test_user", persona: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Validate bot output through guardrails.
@@ -67,9 +67,10 @@ async def validate_output(
     from app.infra.guardrails import get_guardrails_manager
 
     manager = get_guardrails_manager()
-    result = await manager.validate_output(
-        response, context={"conversation_id": conversation_id, "user_id": user_id}
-    )
+    context = {"conversation_id": conversation_id, "user_id": user_id}
+    if persona:
+        context["persona"] = persona
+    result = await manager.validate_output(response, context=context)
 
     return {
         "passed": result.passed,
@@ -142,8 +143,10 @@ def call_api(
         elif test_type == "output":
             # Test output validation
             response = vars.get("response", message)
+            conversation_id = vars.get("conversation_id", "test_conv")
+            persona = vars.get("persona")
             result = loop.run_until_complete(
-                validate_output(response=response, user_id=user_id)
+                validate_output(response=response, conversation_id=conversation_id, user_id=user_id, persona=persona)
             )
         elif test_type == "hallucination":
             # Test hallucination detection

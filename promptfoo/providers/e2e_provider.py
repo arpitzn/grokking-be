@@ -34,6 +34,7 @@ async def stream_chat(
     user_id: str,
     message: str,
     conversation_id: Optional[str] = None,
+    persona: Optional[str] = None,
     timeout: int = 60,
 ) -> Dict[str, Any]:
     """
@@ -53,11 +54,16 @@ async def stream_chat(
     payload = {"user_id": user_id, "message": message}
     if conversation_id:
         payload["conversation_id"] = conversation_id
+    if persona:
+        payload["persona"] = persona
 
     full_response = ""
     thinking_phases = []
     guardrail_triggered = None
     status = "unknown"
+    evidence_cards = []
+    refund_recommendations = []
+    incident_banners = []
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         async with client.stream("POST", url, json=payload) as response:
@@ -91,6 +97,18 @@ async def stream_chat(
                                     "content": parsed.get("content", ""),
                                 }
                             )
+                        
+                        # Handle evidence card events
+                        if parsed.get("event") == "evidence_card":
+                            evidence_cards.append(parsed.get("data", {}))
+                        
+                        # Handle refund recommendation events
+                        if parsed.get("event") == "refund_recommendation":
+                            refund_recommendations.append(parsed.get("data", {}))
+                        
+                        # Handle incident banner events
+                        if parsed.get("event") == "incident_banner":
+                            incident_banners.append(parsed.get("data", {}))
 
                         # Handle content chunks
                         if "content" in parsed and not parsed.get("event"):
@@ -115,6 +133,9 @@ async def stream_chat(
         "guardrail_triggered": guardrail_triggered,
         "status": status,
         "conversation_id": conversation_id,
+        "evidence_cards": evidence_cards,
+        "refund_recommendations": refund_recommendations,
+        "incident_banners": incident_banners,
     }
 
 
@@ -144,6 +165,7 @@ def call_api(
     message = vars.get("message", prompt)
     user_id = vars.get("user_id", "promptfoo_test_user")
     conversation_id = vars.get("conversation_id")
+    persona = vars.get("persona")
 
     try:
         loop = asyncio.new_event_loop()
@@ -155,6 +177,7 @@ def call_api(
                 user_id=user_id,
                 message=message,
                 conversation_id=conversation_id,
+                persona=persona,
                 timeout=timeout,
             )
         )
@@ -165,9 +188,13 @@ def call_api(
         return {
             "output": result["response"],
             "metadata": {
-                "thinking_phases": result["thinking_phases"],
-                "guardrail_triggered": result["guardrail_triggered"],
-                "status": result["status"],
+                "thinking_phases": result.get("thinking_phases", []),
+                "guardrail_triggered": result.get("guardrail_triggered"),
+                "status": result.get("status", "unknown"),
+                "evidence_cards": result.get("evidence_cards", []),
+                "refund_recommendations": result.get("refund_recommendations", []),
+                "incident_banners": result.get("incident_banners", []),
+                "conversation_id": result.get("conversation_id"),
             },
         }
     except httpx.ConnectError as e:

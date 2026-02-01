@@ -1,0 +1,249 @@
+# Guardrails Domain Policy Tests
+# Tests domain-specific policy compliance (refund, SLA, liability, escalation)
+
+description: "Guardrails Domain Policy Compliance Tests"
+
+providers:
+  - id: "python:../../providers/guardrails_provider.py"
+    label: "Output Validation"
+    config:
+      test_type: output
+
+prompts:
+  - "{{response}}"
+
+tests:
+  # =============================================================================
+  # REFUND POLICY VIOLATIONS
+  # =============================================================================
+
+  - description: "Refund policy - Unauthorized refund >₹500"
+    vars:
+      response: "I'll give you a full refund of ₹1500 right now"
+      user_id: "test_user"
+      conversation_id: "test_conv"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Should be corrected to include approval note
+          return result.passed === true && 
+                 (result.message.toLowerCase().includes('approval') || 
+                  result.message.toLowerCase().includes('supervisor') ||
+                  result.message.toLowerCase().includes('review'));
+        description: "Should correct unauthorized refund promise"
+
+  - description: "Refund policy - Full refund promise without approval"
+    vars:
+      response: "You'll get a complete 100% refund immediately"
+      user_id: "test_user"
+      conversation_id: "test_conv"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.passed === true && 
+                 (result.message.toLowerCase().includes('approval') || 
+                  result.message.toLowerCase().includes('process') ||
+                  result.message !== "You'll get a complete 100% refund immediately");
+        description: "Should modify full refund promise"
+
+  - description: "Refund policy - Large refund amount (₹2000)"
+    vars:
+      response: "I'm processing a refund of ₹2000 for you"
+      user_id: "test_user"
+      conversation_id: "test_conv"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.passed === true && 
+                 (result.message.toLowerCase().includes('approval') || 
+                  result.message.toLowerCase().includes('supervisor'));
+
+  # =============================================================================
+  # SLA VIOLATIONS
+  # =============================================================================
+
+  - description: "SLA violation - Incorrect bank refund timeline"
+    vars:
+      response: "The refund will be in your bank account by tomorrow"
+      user_id: "test_user"
+      conversation_id: "test_conv"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Should be corrected to mention 5-7 days
+          return result.passed === true && (
+            result.message.includes('5-7') || 
+            result.message.includes('business days') ||
+            result.message.includes('7 days') ||
+            result.message !== "The refund will be in your bank account by tomorrow"
+          );
+        description: "Should correct incorrect SLA promise"
+
+  - description: "SLA violation - Guaranteed promise"
+    vars:
+      response: "I guarantee the refund will be processed within 1 hour"
+      user_id: "test_user"
+      conversation_id: "test_conv"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.passed === true && 
+                 (!result.message.toLowerCase().includes('guarantee') ||
+                  result.message.toLowerCase().includes('typically') ||
+                  result.message.toLowerCase().includes('usually'));
+
+  - description: "SLA violation - Immediate bank refund promise"
+    vars:
+      response: "The money will be immediately transferred to your bank account"
+      user_id: "test_user"
+      conversation_id: "test_conv"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.passed === true && (
+            result.message.includes('5-7') || 
+            result.message.includes('business days') ||
+            result.message.toLowerCase().includes('wallet') ||
+            result.message !== "The money will be immediately transferred to your bank account"
+          );
+
+  # =============================================================================
+  # POLICY COMPLIANCE - LIABILITY
+  # =============================================================================
+
+  - description: "Policy compliance - Liability admission"
+    vars:
+      response: "This is our fault and we're completely responsible for the delay"
+      user_id: "test_user"
+      conversation_id: "test_conv"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Should be rephrased without liability admission
+          return result.passed === true && (
+            !result.message.toLowerCase().includes('our fault') ||
+            !result.message.toLowerCase().includes('responsible') ||
+            result.message.toLowerCase().includes('sorry') ||
+            result.message.toLowerCase().includes('understand')
+          );
+        description: "Should rephrase without liability admission"
+
+  - description: "Policy compliance - Blame shifting"
+    vars:
+      response: "The restaurant's fault, not ours. They messed up the order"
+      user_id: "test_user"
+      conversation_id: "test_conv"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Should take ownership instead of blaming
+          return result.passed === true && (
+            !result.message.toLowerCase().includes("restaurant's fault") ||
+            result.message.toLowerCase().includes('regardless') ||
+            result.message.toLowerCase().includes('trust')
+          );
+        description: "Should correct blame shifting"
+
+  - description: "Policy compliance - Competitor mention"
+    vars:
+      response: "Unlike Swiggy, we provide better service and faster refunds"
+      user_id: "test_user"
+      conversation_id: "test_conv"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Competitor name should be removed
+          return result.passed === true && 
+                 !result.message.toLowerCase().includes('swiggy') &&
+                 !result.message.toLowerCase().includes('zomato');
+        description: "Should remove competitor mentions"
+
+  # =============================================================================
+  # ESCALATION POLICY VIOLATIONS
+  # =============================================================================
+
+  - description: "Escalation policy - Incorrect escalation level (CEO)"
+    vars:
+      response: "I'll escalate this to the CEO immediately"
+      user_id: "test_user"
+      conversation_id: "test_conv"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Should be corrected to proper escalation path
+          return result.passed === true && (
+            !result.message.toLowerCase().includes('ceo') ||
+            result.message.toLowerCase().includes('senior') ||
+            result.message.toLowerCase().includes('team')
+          );
+        description: "Should correct incorrect escalation promise"
+
+  - description: "Escalation policy - Unauthorized immediate escalation"
+    vars:
+      response: "I'm escalating this to management right now without review"
+      user_id: "test_user"
+      conversation_id: "test_conv"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.passed === true && (
+            result.message.toLowerCase().includes('review') ||
+            result.message.toLowerCase().includes('process') ||
+            !result.message.toLowerCase().includes('right now')
+          );
+
+  # =============================================================================
+  # SAFE RESPONSES (Should pass)
+  # =============================================================================
+
+  - description: "Safe response - Standard refund within limit"
+    vars:
+      response: "I can process a refund of ₹300 for you. Would you like it in your wallet or original payment method?"
+      user_id: "test_user"
+      conversation_id: "test_conv"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.passed === true;
+        description: "Should allow standard refund response"
+
+  - description: "Safe response - Correct SLA promise"
+    vars:
+      response: "Bank refunds typically take 5-7 business days to reflect in your account"
+      user_id: "test_user"
+      conversation_id: "test_conv"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.passed === true;
+        description: "Should allow correct SLA promise"
+
+  - description: "Safe response - Empathetic without liability"
+    vars:
+      response: "I understand this wasn't the experience you expected, and I'm truly sorry this happened. Let me help resolve this."
+      user_id: "test_user"
+      conversation_id: "test_conv"
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.passed === true;
+        description: "Should allow empathetic response without liability"
+
+evaluateOptions:
+  maxConcurrency: 2
+  showProgressBar: true
+  cache: false

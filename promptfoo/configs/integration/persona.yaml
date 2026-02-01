@@ -1,0 +1,156 @@
+# Persona Behavior Integration Tests
+# Tests persona-specific response styles and behaviors
+
+description: "Persona Behavior Integration Tests"
+
+providers:
+  - id: "python:../../providers/executor_provider.py"
+    label: "GPT-4 (t=0.7)"
+    config:
+      model: gpt-4
+      temperature: 0.7
+      max_tokens: 2000
+
+prompts:
+  - "{{query}}"
+
+tests:
+  # =============================================================================
+  # CUSTOMER PERSONA TESTS
+  # =============================================================================
+
+  - description: "Customer persona - Refund request response style"
+    vars:
+      query: "My order is 2 hours late, I want a refund"
+      persona: "end_customer"
+      working_memory: []
+    assert:
+      - type: llm-rubric
+        value: "Response should be warm and empathetic, use first-person language addressing the customer directly (e.g., 'your order', 'we'll help you'), focus on resolution and next steps"
+      - type: contains-any
+        value:
+          - "sorry"
+          - "apologize"
+          - "refund"
+          - "help"
+
+  - description: "Customer persona - Delivery delay complaint"
+    vars:
+      query: "My food delivery is very late, what's happening?"
+      persona: "end_customer"
+      working_memory: []
+    assert:
+      - type: llm-rubric
+        value: "Response should be empathetic and customer-focused, acknowledge the delay, provide reassurance"
+      - type: javascript
+        value: |
+          const lower = output.toLowerCase();
+          return (lower.includes('sorry') || lower.includes('apologize') || lower.includes('understand')) &&
+                 (lower.includes('delay') || lower.includes('late') || lower.includes('delivery'));
+
+  - description: "Customer persona - Quality complaint"
+    vars:
+      query: "The food I received was cold and tasted bad"
+      persona: "end_customer"
+      working_memory: []
+    assert:
+      - type: llm-rubric
+        value: "Response should be warm, empathetic, acknowledge the issue, offer resolution options"
+
+  # =============================================================================
+  # CUSTOMER CARE REP PERSONA TESTS
+  # =============================================================================
+
+  - description: "Customer Care Rep persona - Order lookup response style"
+    vars:
+      query: "Check order status for customer USER-10001"
+      persona: "customer_care_rep"
+      working_memory: []
+    assert:
+      - type: llm-rubric
+        value: "Response should be professional and informative, include policy context or data points, use third-person language (e.g., 'customer's order', 'the order')"
+      - type: javascript
+        value: |
+          const lower = output.toLowerCase();
+          return lower.includes('order') || lower.includes('customer') || lower.includes('status');
+
+  - description: "Customer Care Rep persona - Refund policy inquiry"
+    vars:
+      query: "What is the refund policy for delayed orders over 2 hours?"
+      persona: "customer_care_rep"
+      working_memory: []
+    assert:
+      - type: llm-rubric
+        value: "Response should be professional, include policy details, suggest escalation criteria if needed, use formal language"
+
+  - description: "Customer Care Rep persona - Customer history lookup"
+    vars:
+      query: "Show me the customer profile and order history for USER-10001"
+      persona: "customer_care_rep"
+      working_memory: []
+    assert:
+      - type: llm-rubric
+        value: "Response should be data-driven, professional, include relevant metrics or history, use third-person language"
+
+  # =============================================================================
+  # AREA MANAGER PERSONA TESTS
+  # =============================================================================
+
+  - description: "Area Manager persona - Zone metrics inquiry"
+    vars:
+      query: "What are the current zone performance metrics?"
+      persona: "area_manager"
+      working_memory: []
+    assert:
+      - type: llm-rubric
+        value: "Response should be data-driven and analytical, focus on operational metrics, trends, and insights, use professional analytical language"
+      - type: javascript
+        value: |
+          const lower = output.toLowerCase();
+          return lower.includes('metric') || lower.includes('performance') || lower.includes('zone') || 
+                 lower.includes('data') || lower.includes('trend');
+
+  - description: "Area Manager persona - Incident trend analysis"
+    vars:
+      query: "Show me incident trends for the past week in Zone A"
+      persona: "area_manager"
+      working_memory: []
+    assert:
+      - type: llm-rubric
+        value: "Response should be analytical, data-focused, highlight patterns or systemic issues, provide actionable insights"
+
+  - description: "Area Manager persona - Restaurant operations query"
+    vars:
+      query: "What are the operational issues affecting Restaurant R-001?"
+      persona: "area_manager"
+      working_memory: []
+    assert:
+      - type: llm-rubric
+        value: "Response should be analytical, focus on operational data, metrics, and trends, use professional language"
+
+  # =============================================================================
+  # PERSONA DISTINCTION TESTS
+  # =============================================================================
+
+  - description: "Persona distinction - Same query, different personas"
+    vars:
+      query: "I need information about order delays"
+      persona: "end_customer"
+      working_memory: []
+    assert:
+      - type: llm-rubric
+        value: "Response should use first-person language ('your order', 'we'll help'), be empathetic and customer-focused"
+
+  - description: "Persona distinction - Agent vs Customer tone"
+    vars:
+      query: "Order 12345 is delayed"
+      persona: "customer_care_rep"
+      working_memory: []
+    assert:
+      - type: llm-rubric
+        value: "Response should use third-person language ('the order', 'customer's order'), be professional and informative, include policy context"
+
+evaluateOptions:
+  maxConcurrency: 2
+  showProgressBar: true
+  cache: true

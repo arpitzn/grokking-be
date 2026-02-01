@@ -1,0 +1,159 @@
+# End-to-End Conversation Continuity Tests
+# Tests multi-turn conversations maintaining context via /chat/stream API
+
+description: "E2E Conversation Continuity Tests"
+
+providers:
+  - id: "python:../../providers/e2e_provider.py"
+    label: "E2E Chat"
+    config:
+      base_url: "http://localhost:8000"
+      timeout: 60
+
+prompts:
+  - "{{message}}"
+
+tests:
+  # =============================================================================
+  # PRONOUN RESOLUTION
+  # =============================================================================
+
+  - description: "E2E - Pronoun resolution (order reference)"
+    vars:
+      message: "What about that order?"
+      user_id: "e2e_continuity_001"
+      persona: "end_customer"
+      conversation_id: "{{setup_conversation}}"  # Would need setup step
+    assert:
+      - type: contains-any
+        value:
+          - "order"
+          - "12345"  # Assuming order ID from previous message
+      - type: llm-rubric
+        value: "Response should resolve 'that order' using conversation context"
+      - type: javascript
+        value: |
+          return output && output.length > 15 && !output.includes("Error");
+        description: "Should resolve pronoun from context"
+
+  - description: "E2E - Pronoun resolution (refund reference)"
+    vars:
+      message: "How long will that take?"
+      user_id: "e2e_continuity_002"
+      persona: "end_customer"
+      conversation_id: "{{setup_conversation}}"
+    assert:
+      - type: contains-any
+        value:
+          - "refund"
+          - "day"
+          - "hour"
+          - "minute"
+      - type: llm-rubric
+        value: "Response should resolve 'that' as refund from previous context"
+
+  # =============================================================================
+  # FOLLOW-UP QUESTIONS
+  # =============================================================================
+
+  - description: "E2E - Follow-up question maintains context"
+    vars:
+      message: "Can you tell me more?"
+      user_id: "e2e_continuity_003"
+      persona: "end_customer"
+      conversation_id: "{{setup_conversation}}"
+    assert:
+      - type: llm-rubric
+        value: "Response should expand on previous topic, maintain conversation context"
+      - type: javascript
+        value: |
+          return output && output.length > 20 && !output.includes("Error");
+        description: "Should maintain context for follow-up"
+
+  - description: "E2E - Clarification request uses context"
+    vars:
+      message: "Can you explain that differently?"
+      user_id: "e2e_continuity_004"
+      persona: "end_customer"
+      conversation_id: "{{setup_conversation}}"
+    assert:
+      - type: llm-rubric
+        value: "Response should re-explain previous topic using different language, maintain context"
+      - type: javascript
+        value: |
+          return output && output.length > 20 && !output.includes("Error");
+        description: "Should use context for clarification"
+
+  # =============================================================================
+  # CONTEXT ACROSS MULTIPLE TURNS
+  # =============================================================================
+
+  - description: "E2E - Multi-turn context (3+ turns)"
+    vars:
+      message: "What was the first thing I asked about?"
+      user_id: "e2e_continuity_005"
+      persona: "end_customer"
+      conversation_id: "{{setup_conversation}}"
+    assert:
+      - type: llm-rubric
+        value: "Response should reference earlier conversation topics, demonstrate long-term memory"
+      - type: javascript
+        value: |
+          return output && output.length > 15 && !output.includes("Error");
+        description: "Should maintain context across multiple turns"
+
+  - description: "E2E - Context switching (new topic)"
+    vars:
+      message: "Actually, I have a different question about my account"
+      user_id: "e2e_continuity_006"
+      persona: "end_customer"
+      conversation_id: "{{setup_conversation}}"
+    assert:
+      - type: contains-any
+        value:
+          - "account"
+          - "question"
+          - "help"
+      - type: llm-rubric
+        value: "Response should acknowledge topic switch, offer to help with account question"
+      - type: javascript
+        value: |
+          return output && output.length > 15 && !output.includes("Error");
+        description: "Should handle topic switching gracefully"
+
+  # =============================================================================
+  # WORKING MEMORY IMPACT
+  # =============================================================================
+
+  - description: "E2E - Working memory summary affects response"
+    vars:
+      message: "Remind me what we discussed"
+      user_id: "e2e_continuity_007"
+      persona: "end_customer"
+      conversation_id: "{{setup_conversation}}"
+    assert:
+      - type: llm-rubric
+        value: "Response should reference previous conversation summary, demonstrate working memory usage"
+      - type: javascript
+        value: |
+          return output && output.length > 20 && !output.includes("Error");
+        description: "Should use working memory summary"
+
+  - description: "E2E - Recent messages affect response"
+    vars:
+      message: "What did you just say?"
+      user_id: "e2e_continuity_008"
+      persona: "end_customer"
+      conversation_id: "{{setup_conversation}}"
+    assert:
+      - type: llm-rubric
+        value: "Response should reference recent assistant message, demonstrate recent message memory"
+      - type: javascript
+        value: |
+          return output && output.length > 15 && !output.includes("Error");
+        description: "Should use recent message context"
+
+evaluateOptions:
+  maxConcurrency: 1  # Lower concurrency for continuity tests
+  showProgressBar: true
+  cache: false

@@ -5,45 +5,45 @@ description: "Planner Query Classification Evaluation"
 
 providers:
   # GPT-3.5 Turbo variants
-  - id: "python:promptfoo/providers/planner_provider.py"
+  - id: "python:../../providers/planner_provider.py"
     label: "GPT-3.5 (t=0.0)"
     config:
       model: gpt-3.5-turbo
       temperature: 0.0
 
-  - id: "python:promptfoo/providers/planner_provider.py"
+  - id: "python:../../providers/planner_provider.py"
     label: "GPT-3.5 (t=0.3)"
     config:
       model: gpt-3.5-turbo
       temperature: 0.3
 
-  - id: "python:promptfoo/providers/planner_provider.py"
+  - id: "python:../../providers/planner_provider.py"
     label: "GPT-3.5 (t=0.5)"
     config:
       model: gpt-3.5-turbo
       temperature: 0.5
 
   # GPT-4 variants
-  - id: "python:promptfoo/providers/planner_provider.py"
+  - id: "python:../../providers/planner_provider.py"
     label: "GPT-4 (t=0.0)"
     config:
       model: gpt-4
       temperature: 0.0
 
-  - id: "python:promptfoo/providers/planner_provider.py"
+  - id: "python:../../providers/planner_provider.py"
     label: "GPT-4 (t=0.3)"
     config:
       model: gpt-4
       temperature: 0.3
 
-  - id: "python:promptfoo/providers/planner_provider.py"
+  - id: "python:../../providers/planner_provider.py"
     label: "GPT-4 (t=0.5)"
     config:
       model: gpt-4
       temperature: 0.5
 
   # GPT-4 Turbo
-  - id: "python:promptfoo/providers/planner_provider.py"
+  - id: "python:../../providers/planner_provider.py"
     label: "GPT-4-Turbo (t=0.3)"
     config:
       model: gpt-4-turbo

@@ -49,6 +49,7 @@ async def generate_response(
     temperature: float = 0.7,
     max_tokens: int = 2000,
     prompt_template: Optional[str] = None,
+    persona: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Generate a response based on query, context, and tool results.
@@ -88,6 +89,34 @@ async def generate_response(
                 result_texts = "\n".join([r.get("content", "") for r in results])
                 tool_context += f"\n\nRetrieved from external search:\n{result_texts}"
 
+    # Build persona-specific instructions
+    persona_instructions = ""
+    if persona == "end_customer":
+        persona_instructions = """
+Persona: Customer
+- Use warm, empathetic, customer-facing language
+- Address them directly ("your order", "we'll help you")
+- Focus on resolution and next steps
+- Keep it simple and reassuring
+"""
+    elif persona == "customer_care_rep":
+        persona_instructions = """
+Persona: Customer Care Representative
+- Use professional, informative language
+- Provide policy context and resolution options
+- Include relevant data points (customer history, order details)
+- Suggest escalation criteria if needed
+- Use third-person language ("customer's order", "the order")
+"""
+    elif persona == "area_manager":
+        persona_instructions = """
+Persona: Area Manager
+- Use data-driven, analytical language
+- Focus on operational metrics and trends
+- Highlight systemic issues or patterns
+- Provide actionable insights
+"""
+    
     # Use custom prompt or default
     if prompt_template:
         executor_prompt = (
@@ -95,16 +124,18 @@ async def generate_response(
             .replace("{{context}}", working_memory_text)
             .replace("{{tool_context}}", tool_context)
         )
+        if persona:
+            executor_prompt = executor_prompt.replace("{{persona}}", persona)
     else:
-        executor_prompt = f"""You are a helpful AI assistant. Answer the user's query based on the conversation context and any retrieved information.
-
+        executor_prompt = f"""You are a helpful AI assistant for a food delivery support system. Answer the user's query based on the conversation context and any retrieved information.
+{persona_instructions}
 Conversation context:
 {working_memory_text}
 {tool_context}
 
 User query: {query}
 
-Provide a clear, helpful response based on the available information. If you used retrieved information, synthesize it naturally without mentioning the sources explicitly."""
+Provide a clear, helpful response based on the available information. If you used retrieved information, synthesize it naturally without mentioning the sources explicitly. Adjust your tone and style based on the persona instructions above."""
 
     from langchain_core.messages import HumanMessage
 
@@ -145,6 +176,7 @@ def call_api(
     working_memory = vars.get("working_memory", [])
     tool_results = vars.get("tool_results", [])
     prompt_template = vars.get("prompt_template")
+    persona = vars.get("persona")
 
     # Parse JSON strings if needed
     if isinstance(working_memory, str):
@@ -172,6 +204,7 @@ def call_api(
                 temperature=temperature,
                 max_tokens=max_tokens,
                 prompt_template=prompt_template,
+                persona=persona,
             )
         )
         loop.close()

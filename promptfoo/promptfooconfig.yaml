@@ -21,13 +21,13 @@ evaluateOptions:
 
 # Providers for planner evaluation
 providers:
-  - id: "python:promptfoo/providers/planner_provider.py"
+  - id: "python:providers/planner_provider.py"
     label: "Planner (GPT-3.5, t=0.3)"
     config:
       model: gpt-3.5-turbo
       temperature: 0.3
 
-  - id: "python:promptfoo/providers/planner_provider.py"
+  - id: "python:providers/planner_provider.py"
     label: "Planner (GPT-4, t=0.3)"
     config:
       model: gpt-4

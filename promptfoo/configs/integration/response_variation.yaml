@@ -1,0 +1,198 @@
+# Response Variation Tests
+# Tests non-robotic responses and temperature impact on variation
+
+description: "Response Variation Tests"
+
+providers:
+  - id: "python:../../providers/executor_provider.py"
+    label: "GPT-4 (t=0.3)"
+    config:
+      model: gpt-4
+      temperature: 0.3
+      max_tokens: 2000
+
+  - id: "python:../../providers/executor_provider.py"
+    label: "GPT-4 (t=0.7)"
+    config:
+      model: gpt-4
+      temperature: 0.7
+      max_tokens: 2000
+
+  - id: "python:../../providers/executor_provider.py"
+    label: "GPT-4 (t=1.0)"
+    config:
+      model: gpt-4
+      temperature: 1.0
+      max_tokens: 2000
+
+prompts:
+  - "{{query}}"
+
+tests:
+  # =============================================================================
+  # NON-ROBOTIC RESPONSES
+  # =============================================================================
+
+  - description: "Response variation - Same query, natural phrasing"
+    vars:
+      query: "Hello, how are you?"
+      working_memory: []
+    assert:
+      - type: llm-rubric
+        value: "Response should be friendly and natural, not robotic or templated. Should feel conversational and human-like."
+      - type: javascript
+        value: |
+          // Check that response doesn't sound like a template
+          const lower = output.toLowerCase();
+          const roboticPhrases = [
+            'i am an ai',
+            'i am a language model',
+            'i cannot',
+            'i do not have',
+            'as an ai assistant'
+          ];
+          return !roboticPhrases.some(phrase => lower.includes(phrase));
+        description: "Should avoid robotic phrases"
+
+  - description: "Response variation - Empathetic greeting"
+    vars:
+      query: "Hi there!"
+      working_memory: []
+    assert:
+      - type: llm-rubric
+        value: "Response should be warm and welcoming, use natural language, avoid formal templates"
+      - type: javascript
+        value: |
+          const lower = output.toLowerCase();
+          return lower.includes('hi') || lower.includes('hello') || lower.includes('hey') ||
+                 lower.includes('help') || lower.length > 5;
+        description: "Should respond naturally to greeting"
+
+  - description: "Response variation - Natural apology"
+    vars:
+      query: "My order is 2 hours late"
+      working_memory: []
+    assert:
+      - type: llm-rubric
+        value: "Response should be empathetic and natural, acknowledge the issue, avoid sounding scripted"
+      - type: javascript
+        value: |
+          const lower = output.toLowerCase();
+          return (lower.includes('sorry') || lower.includes('apologize') || lower.includes('understand')) &&
+                 lower.length > 20;
+        description: "Should provide natural empathetic response"
+
+  # =============================================================================
+  # TEMPERATURE IMPACT ON VARIATION
+  # =============================================================================
+
+  - description: "Response variation - Temperature 0.3 (consistent)"
+    vars:
+      query: "What is your refund policy?"
+      working_memory: []
+    assert:
+      - type: javascript
+        value: |
+          // Lower temperature should produce more consistent responses
+          return output && output.length > 20;
+        description: "Should generate consistent response with low temperature"
+
+  - description: "Response variation - Temperature 0.7 (balanced)"
+    vars:
+      query: "What is your refund policy?"
+      working_memory: []
+    assert:
+      - type: javascript
+        value: |
+          // Medium temperature should produce varied but coherent responses
+          return output && output.length > 20;
+        description: "Should generate balanced response with medium temperature"
+
+  - description: "Response variation - Temperature 1.0 (high variation)"
+    vars:
+      query: "What is your refund policy?"
+      working_memory: []
+    assert:
+      - type: javascript
+        value: |
+          // Higher temperature should allow more variation
+          return output && output.length > 20;
+        description: "Should generate varied response with high temperature"
+
+  # =============================================================================
+  # NATURAL LANGUAGE VARIATION
+  # =============================================================================
+
+  - description: "Response variation - Avoids repetitive phrasing"
+    vars:
+      query: "Can you help me with my order?"
+      working_memory: []
+    assert:
+      - type: llm-rubric
+        value: "Response should use varied sentence structures and natural language, avoid repeating the same phrases"
+      - type: javascript
+        value: |
+          // Check for excessive repetition
+          const words = output.toLowerCase().split(/\s+/);
+          const wordCounts = {};
+          words.forEach(word => {
+            wordCounts[word] = (wordCounts[word] || 0) + 1;
+          });
+          // No single word should appear more than 5 times in a short response
+          const maxRepetition = Math.max(...Object.values(wordCounts));
+          return maxRepetition <= 5 || output.length > 200;
+        description: "Should avoid excessive word repetition"
+
+  - description: "Response variation - Natural transitions"
+    vars:
+      query: "I want a refund for my delayed order"
+      working_memory: []
+    assert:
+      - type: llm-rubric
+        value: "Response should flow naturally with smooth transitions between ideas, avoid abrupt topic changes"
+      - type: javascript
+        value: |
+          // Check for natural flow (presence of connecting words)
+          const lower = output.toLowerCase();
+          const connectors = ['and', 'but', 'however', 'also', 'furthermore', 'additionally', 'let me', 'i can'];
+          return connectors.some(connector => lower.includes(connector)) || lower.length > 30;
+        description: "Should use natural connecting words"
+
+  # =============================================================================
+  # DOMAIN-SPECIFIC VARIATION
+  # =============================================================================
+
+  - description: "Response variation - Food delivery context (natural)"
+    vars:
+      query: "My food delivery is late"
+      working_memory: []
+    assert:
+      - type: llm-rubric
+        value: "Response should be natural and conversational in food delivery context, avoid sounding like a generic chatbot"
+      - type: javascript
+        value: |
+          const lower = output.toLowerCase();
+          return (lower.includes('order') || lower.includes('delivery') || lower.includes('food')) &&
+                 lower.length > 15;
+        description: "Should reference food delivery context naturally"
+
+  - description: "Response variation - Refund request (varied phrasing)"
+    vars:
+      query: "I need a refund"
+      working_memory: []
+    assert:
+      - type: llm-rubric
+        value: "Response should acknowledge the request naturally, avoid templated language like 'I understand you need a refund'"
+      - type: javascript
+        value: |
+          const lower = output.toLowerCase();
+          // Should acknowledge refund but not use exact template phrase
+          return lower.includes('refund') && 
+                 !lower.includes('i understand you need a refund') &&
+                 lower.length > 10;
+        description: "Should avoid templated refund acknowledgment"
+
+evaluateOptions:
+  maxConcurrency: 2
+  showProgressBar: true
+  cache: false  # Don't cache to allow variation testing

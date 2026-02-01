@@ -1,0 +1,258 @@
+# RAG Retrieval Quality Integration Tests
+# Tests persona-filtered retrieval, issue-type filtering, and relevance metrics
+
+description: "RAG Retrieval Quality Tests"
+
+providers:
+  - id: "python:../../providers/rag_provider.py"
+    label: "RAG Retrieval (top_k=5)"
+    config:
+      top_k: 5
+      embedding_model: text-embedding-3-small
+
+prompts:
+  - "{{query}}"
+
+tests:
+  # =============================================================================
+  # PERSONA-FILTERED RETRIEVAL
+  # =============================================================================
+
+  - description: "RAG - Persona filtering (customer refund policy)"
+    vars:
+      query: "What is your refund policy for delayed orders?"
+      persona: "end_customer"
+      user_id: "test_customer"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Should retrieve chunks related to refund policy
+          return result.chunks && result.chunks.length > 0 &&
+                 result.chunks.some(chunk => 
+                   chunk.content && 
+                   chunk.content.toLowerCase().includes('refund')
+                 );
+        description: "Should retrieve refund-related chunks"
+
+  - description: "RAG - Persona filtering (agent SOP retrieval)"
+    vars:
+      query: "What is the standard operating procedure for handling refund requests?"
+      persona: "customer_care_rep"
+      user_id: "test_agent"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Should retrieve SOP or policy chunks
+          return result.chunks && result.chunks.length > 0 &&
+                 (result.chunks.some(chunk => 
+                   chunk.content && 
+                   (chunk.content.toLowerCase().includes('sop') ||
+                    chunk.content.toLowerCase().includes('procedure') ||
+                    chunk.content.toLowerCase().includes('policy'))
+                 ));
+        description: "Should retrieve SOP or policy chunks for agent persona"
+
+  - description: "RAG - Persona filtering (manager metrics retrieval)"
+    vars:
+      query: "What are the zone performance metrics and KPIs?"
+      persona: "area_manager"
+      user_id: "test_manager"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Should retrieve operational/metrics chunks
+          return result.chunks && result.chunks.length > 0 &&
+                 (result.chunks.some(chunk => 
+                   chunk.content && 
+                   (chunk.content.toLowerCase().includes('metric') ||
+                    chunk.content.toLowerCase().includes('kpi') ||
+                    chunk.content.toLowerCase().includes('performance'))
+                 ));
+        description: "Should retrieve metrics/operational chunks for manager persona"
+
+  # =============================================================================
+  # ISSUE-TYPE FILTERED RETRIEVAL
+  # =============================================================================
+
+  - description: "RAG - Issue type filtering (refund queries)"
+    vars:
+      query: "How do I get a refund for a delayed order?"
+      issue_type: "refund"
+      user_id: "test_user"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Should retrieve refund policy chunks
+          return result.chunks && result.chunks.length > 0 &&
+                 result.chunks.some(chunk => 
+                   chunk.content && 
+                   chunk.content.toLowerCase().includes('refund')
+                 );
+        description: "Should retrieve refund policy chunks for refund issue type"
+
+  - description: "RAG - Issue type filtering (delivery delay queries)"
+    vars:
+      query: "What is the SLA for delivery delays?"
+      issue_type: "delivery_delay"
+      user_id: "test_user"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Should retrieve SLA or delay-related chunks
+          return result.chunks && result.chunks.length > 0 &&
+                 (result.chunks.some(chunk => 
+                   chunk.content && 
+                   (chunk.content.toLowerCase().includes('sla') ||
+                    chunk.content.toLowerCase().includes('delay') ||
+                    chunk.content.toLowerCase().includes('delivery'))
+                 ));
+        description: "Should retrieve SLA/delay chunks for delivery_delay issue type"
+
+  - description: "RAG - Issue type filtering (quality queries)"
+    vars:
+      query: "What is the policy for food quality complaints?"
+      issue_type: "quality"
+      user_id: "test_user"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Should retrieve quality/complaint policy chunks
+          return result.chunks && result.chunks.length > 0 &&
+                 (result.chunks.some(chunk => 
+                   chunk.content && 
+                   (chunk.content.toLowerCase().includes('quality') ||
+                    chunk.content.toLowerCase().includes('complaint') ||
+                    chunk.content.toLowerCase().includes('policy'))
+                 ));
+        description: "Should retrieve quality policy chunks"
+
+  # =============================================================================
+  # RELEVANCE METRICS
+  # =============================================================================
+
+  - description: "RAG - Relevance score threshold"
+    vars:
+      query: "What are the refund eligibility criteria?"
+      user_id: "test_user"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Top chunk should have reasonable relevance score
+          if (result.chunks && result.chunks.length > 0) {
+            const topChunk = result.chunks[0];
+            return topChunk.score !== undefined && topChunk.score > 0;
+          }
+          return false;
+        description: "Should return relevance scores for chunks"
+
+  - description: "RAG - Top-k chunks contain relevant information"
+    vars:
+      query: "What is the compensation policy for delayed orders?"
+      user_id: "test_user"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // At least some chunks should be relevant
+          if (result.chunks && result.chunks.length > 0) {
+            const relevantChunks = result.chunks.filter(chunk => 
+              chunk.content && 
+              (chunk.content.toLowerCase().includes('compensation') ||
+               chunk.content.toLowerCase().includes('policy') ||
+               chunk.content.toLowerCase().includes('delay') ||
+               chunk.content.toLowerCase().includes('refund'))
+            );
+            return relevantChunks.length > 0;
+          }
+          return false;
+        description: "Should retrieve relevant chunks for query"
+
+  - description: "RAG - Respects top_k parameter"
+    vars:
+      query: "Tell me about order policies"
+      user_id: "test_user"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.chunk_count <= 5 && result.top_k === 5;
+        description: "Should respect top_k=5 limit"
+
+  # =============================================================================
+  # FOOD DELIVERY DOMAIN RETRIEVAL
+  # =============================================================================
+
+  - description: "RAG - Food delivery refund policy retrieval"
+    vars:
+      query: "What is the refund policy for food delivery orders?"
+      user_id: "test_user"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.chunks && result.chunks.length > 0 &&
+                 result.chunks.some(chunk => 
+                   chunk.content && 
+                   (chunk.content.toLowerCase().includes('refund') ||
+                    chunk.content.toLowerCase().includes('policy') ||
+                    chunk.content.toLowerCase().includes('compensation'))
+                 );
+        description: "Should retrieve food delivery refund policy chunks"
+
+  - description: "RAG - Food delivery SLA retrieval"
+    vars:
+      query: "What are the service level agreements for food delivery?"
+      user_id: "test_user"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.chunks && result.chunks.length > 0 &&
+                 result.chunks.some(chunk => 
+                   chunk.content && 
+                   (chunk.content.toLowerCase().includes('sla') ||
+                    chunk.content.toLowerCase().includes('service level') ||
+                    chunk.content.toLowerCase().includes('agreement'))
+                 );
+        description: "Should retrieve SLA-related chunks"
+
+  - description: "RAG - Food delivery escalation policy retrieval"
+    vars:
+      query: "When should I escalate a customer complaint?"
+      user_id: "test_user"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.chunks && result.chunks.length > 0 &&
+                 result.chunks.some(chunk => 
+                   chunk.content && 
+                   (chunk.content.toLowerCase().includes('escalat') ||
+                    chunk.content.toLowerCase().includes('complaint') ||
+                    chunk.content.toLowerCase().includes('policy'))
+                 );
+        description: "Should retrieve escalation policy chunks"
+
+evaluateOptions:
+  maxConcurrency: 2
+  showProgressBar: true
+  cache: true
