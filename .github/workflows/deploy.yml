@@ -34,10 +34,15 @@ jobs:
           echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/grokking.pem
           chmod 600 ~/.ssh/grokking.pem
           ssh-keyscan -H ${{ env.EC2_HOST }} >> ~/.ssh/known_hosts
+          
+          # Verify key format
+          echo "🔑 Verifying SSH key..."
+          head -1 ~/.ssh/grokking.pem
+          tail -1 ~/.ssh/grokking.pem
 
       - name: Build and Deploy on EC2
         run: |
-          ssh -i ~/.ssh/grokking.pem ${{ env.EC2_USER }}@${{ env.EC2_HOST }} << 'ENDSSH'
+          ssh -T -o StrictHostKeyChecking=no -i ~/.ssh/grokking.pem ${{ env.EC2_USER }}@${{ env.EC2_HOST }} << 'ENDSSH'
             set -e
             
             echo "📁 Setting up build directory..."
