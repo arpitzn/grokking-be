@@ -5,11 +5,11 @@
   "private": true,
   "scripts": {
     "promptfoo:eval": "promptfoo eval",
-    "promptfoo:eval:planner": "promptfoo eval -c promptfoo/configs/planner.yaml",
-    "promptfoo:eval:executor": "promptfoo eval -c promptfoo/configs/executor.yaml",
-    "promptfoo:eval:guardrails": "promptfoo eval -c promptfoo/configs/guardrails.yaml",
-    "promptfoo:eval:rag": "promptfoo eval -c promptfoo/configs/rag.yaml",
-    "promptfoo:eval:e2e": "promptfoo eval -c promptfoo/configs/e2e.yaml",
+    "promptfoo:eval:planner": "promptfoo eval -c promptfoo/configs/unit/planner.yaml",
+    "promptfoo:eval:executor": "promptfoo eval -c promptfoo/configs/unit/executor.yaml",
+    "promptfoo:eval:guardrails": "promptfoo eval -c promptfoo/configs/unit/guardrails.yaml",
+    "promptfoo:eval:rag": "promptfoo eval -c promptfoo/configs/unit/rag.yaml",
+    "promptfoo:eval:e2e": "promptfoo eval -c promptfoo/configs/e2e/e2e_basic.yaml",
     "promptfoo:view": "promptfoo view",
     "promptfoo:share": "promptfoo share",
     "promptfoo:cache:clear": "promptfoo cache clear"
