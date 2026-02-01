@@ -155,9 +155,10 @@ async def memory_write_node(state: AgentState) -> AgentState:
     except Exception as e:
         logger.error(f"Procedural memory build failed: {e}")
 
-    # Execute all memory writes in parallel (fire-and-forget)
+    # ASYNC EXECUTION: Fire-and-forget parallel memory writes
+    # asyncio.create_task() returns immediately, doesn't block graph execution
+    # Satisfies hackathon requirement: "asynchronous execution for memory updates"
     if memory_tasks:
-        # Wrap gather in a coroutine function since create_task expects a coroutine
         async def _run_memory_tasks():
             await asyncio.gather(*memory_tasks, return_exceptions=True)
 

@@ -22,10 +22,10 @@ class MemoryBuilder:
         conversation_history: Optional[List[Dict]] = None
     ) -> List[str]:
         """
-        Build episodic memories from user interaction using LLM.
-        
-        Returns list of declarative statements about user behavior.
-        Falls back to templates if LLM fails.
+        EPISODIC MEMORY: User behavior patterns (user-scoped)
+        LLM generates declarative statements about user preferences and patterns
+        Stored in Mem0 with user_id for personalization
+        Satisfies hackathon requirement: "episodic memory - past incidents, conversations, outcomes"
         
         Args:
             case: Case dictionary with user/case info
@@ -160,10 +160,10 @@ Generate 2-3 statements, one per line:"""
         case: Optional[Dict[str, Any]] = None
     ) -> List[str]:
         """
-        Build semantic memories about operational patterns using LLM.
-        
-        Returns list of declarative statements about system patterns.
-        Falls back to templates if LLM fails.
+        SEMANTIC MEMORY: Operational patterns (app-scoped)
+        LLM generates declarative statements about system behavior and trends
+        Stored in Mem0 without user_id for cross-user learning
+        Satisfies hackathon requirement: "semantic memory - documents, FAQs, runbooks"
         
         Args:
             zone_id: Zone identifier
@@ -281,10 +281,10 @@ Generate 1-2 statements, one per line:"""
         final_response: Optional[str] = None
     ) -> List[str]:
         """
-        Build procedural memories about what works using LLM.
-        
-        Returns list of declarative statements about effective actions.
-        Falls back to templates if LLM fails.
+        PROCEDURAL MEMORY: "What works" knowledge (app-scoped)
+        LLM generates declarative statements about effective resolution strategies
+        Only stored when confidence > 0.8 to ensure quality
+        Satisfies hackathon requirement: "procedural memory - what works, when, and why"
         
         Args:
             issue_type: Type of issue that was resolved

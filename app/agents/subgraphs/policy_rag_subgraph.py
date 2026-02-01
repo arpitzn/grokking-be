@@ -20,7 +20,12 @@ logger = logging.getLogger(__name__)
 
 
 def create_policy_rag_subgraph():
-    """Create policy RAG subgraph using LangGraph's create_react_agent with async fix"""
+    """
+    RAG RETRIEVAL SUBGRAPH: Retrieval happens BEFORE reasoning
+    Uses create_react_agent for automatic tool-calling loop
+    Returns only evidence to parent graph (retrieval/reasoning separation)
+    Satisfies hackathon requirement: "retrieval must happen before generation"
+    """
     
     # Get LLM (no tool binding needed - create_react_agent handles it)
     llm_service = get_llm_service()

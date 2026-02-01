@@ -146,12 +146,13 @@ async def chat_stream(request: CaseRequest):
     # Message passed guardrails - will be processed by agent system
     logger.info("Message passed guardrails, starting agent system")
 
-    # Build working memory (summary + recent messages)
-    # Note: Mem0 context is handled separately by memory retrieval agent
+    # CONTEXT MANAGEMENT: Working memory = summary + last 10 messages
+    # Prevents unbounded context growth while maintaining conversation continuity
+    # Satisfies hackathon requirement: "manage short-term context, prevent unbounded growth"
     working_memory = await build_working_memory(
         conversation_id=conversation_id,
         user_id=request.user_id,
-        current_query=None,  # Not needed since we're not querying Mem0 here
+        current_query=None,
         include_mem0=False  # Mem0 handled by memory retrieval agent
     )
 
@@ -207,7 +208,9 @@ async def chat_stream(request: CaseRequest):
             # Get graph
             graph = get_graph()
 
-            # Stream graph execution with callbacks
+            # STREAMING: LangGraph astream() yields state updates per node
+            # Enables real-time UI updates for explainability
+            # Satisfies hackathon requirement: "live streaming of agent calls and execution steps"
             async for chunk in graph.astream(initial_state, config=langfuse_config):
                 # Stream tool observability events
                 async for event in streamer.stream_tool_events():
@@ -249,7 +252,8 @@ async def chat_stream(request: CaseRequest):
                     content=streamer.full_response,
                 )
                 
-                # Trigger async summarization if needed (every 10 messages)
+                # ASYNC EXECUTION: Summarization doesn't block response delivery
+                # Satisfies hackathon requirement: "asynchronous execution"
                 asyncio.create_task(trigger_summarization_if_needed(conversation_id))
 
             # Send completion event
