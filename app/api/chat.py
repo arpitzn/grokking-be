@@ -58,61 +58,9 @@ async def chat_stream(request: CaseRequest):
         },
     )
 
-    # Get guardrails manager (singleton, initialized at startup)
-    guardrails = get_guardrails_manager()
-
-    # Validate input with NeMo Guardrails
-    validation_result = await guardrails.validate_input(
-        request.message, request.user_id
-    )
-
-    log_business_milestone(
-        logger,
-        "guardrails_validation_complete",
-        user_id=request.user_id,
-        details={
-            "passed": validation_result.passed,
-            "detection_type": validation_result.detection_type,
-        },
-    )
-
-    # If guardrails detected an issue, return a friendly streaming response
-    if not validation_result.passed:
-        log_business_milestone(
-            logger,
-            "guardrails_friendly_response",
-            user_id=request.user_id,
-            details={
-                "detection_type": validation_result.detection_type,
-                "duration_ms": (time.time() - start_time) * 1000,
-            },
-        )
-
-        async def guardrail_response_generator():
-            """Stream a friendly guardrail message to the user"""
-            friendly_message = validation_result.message
-            chunk_size = 10
-            for i in range(0, len(friendly_message), chunk_size):
-                delta = friendly_message[i : i + chunk_size]
-                yield f"data: {json.dumps({'content': delta})}\n\n"
-
-            yield f"data: {json.dumps({'status': 'completed', 'guardrail_triggered': validation_result.detection_type})}\n\n"
-            yield "data: [DONE]\n\n"
-
-        return StreamingResponse(
-            guardrail_response_generator(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-            },
-        )
-
-    # Message passed guardrails - will be processed by agent system
-    logger.info("Message passed guardrails, starting agent system")
-
-    # Create conversation if needed
+    # ============================================================================
+    # FIX 1: Create conversation BEFORE guardrail check to ensure thread appears
+    # ============================================================================
     conversation_id = request.conversation_id
     if not conversation_id:
         log_business_milestone(
@@ -128,6 +76,76 @@ async def chat_stream(request: CaseRequest):
             details={"conversation_id": conversation_id, "title": title},
         )
 
+    # Insert user message BEFORE guardrail check to ensure it's persisted
+    user_message_id = await insert_message(
+        conversation_id=conversation_id, role="user", content=request.message
+    )
+
+    # Get guardrails manager (singleton, initialized at startup)
+    guardrails = get_guardrails_manager()
+
+    # Validate input with NeMo Guardrails (now with conversation_id for variation)
+    validation_result = await guardrails.validate_input(
+        request.message, request.user_id, conversation_id=conversation_id
+    )
+
+    log_business_milestone(
+        logger,
+        "guardrails_validation_complete",
+        user_id=request.user_id,
+        details={
+            "passed": validation_result.passed,
+            "detection_type": validation_result.detection_type,
+            "conversation_id": conversation_id,
+        },
+    )
+
+    # If guardrails detected an issue, return a friendly streaming response
+    if not validation_result.passed:
+        log_business_milestone(
+            logger,
+            "guardrails_friendly_response",
+            user_id=request.user_id,
+            details={
+                "detection_type": validation_result.detection_type,
+                "conversation_id": conversation_id,
+                "duration_ms": (time.time() - start_time) * 1000,
+            },
+        )
+
+        async def guardrail_response_generator():
+            """Stream a friendly guardrail message to the user"""
+            friendly_message = validation_result.message
+            chunk_size = 10
+            for i in range(0, len(friendly_message), chunk_size):
+                delta = friendly_message[i : i + chunk_size]
+                yield f"data: {json.dumps({'content': delta})}\n\n"
+
+            # Include conversation_id in completion event for frontend
+            yield f"data: {json.dumps({'status': 'completed', 'guardrail_triggered': validation_result.detection_type, 'conversation_id': conversation_id})}\n\n"
+            yield "data: [DONE]\n\n"
+            
+            # Persist assistant guardrail message after streaming
+            await insert_message(
+                conversation_id=conversation_id,
+                role="assistant",
+                content=friendly_message,
+                metadata={"guardrail_detection_type": validation_result.detection_type}
+            )
+
+        return StreamingResponse(
+            guardrail_response_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    # Message passed guardrails - will be processed by agent system
+    logger.info("Message passed guardrails, starting agent system")
+
     # Build working memory (summary + recent messages)
     # Note: Mem0 context is handled separately by memory retrieval agent
     working_memory = await build_working_memory(
@@ -137,17 +155,40 @@ async def chat_stream(request: CaseRequest):
         include_mem0=False  # Mem0 handled by memory retrieval agent
     )
 
-    # Insert user message
-    user_message_id = await insert_message(
-        conversation_id=conversation_id, role="user", content=request.message
-    )
-
     async def event_generator():
         """Generate SSE events with Chain-of-Thought streaming and custom UI events"""
         # Initialize streamer with debug mode from request
         streamer = EventStreamer(debug_mode=request.debug_mode or False)
         
         try:
+            # Pre-streaming validation: Quick check before streaming starts
+            # This is a fast validation pass to catch obvious issues early
+            guardrails = get_guardrails_manager()
+            pre_validation = await guardrails.validate_input(
+                request.message, request.user_id, conversation_id=conversation_id
+            )
+            
+            # If pre-validation fails, stream the friendly message instead
+            if not pre_validation.passed:
+                log_business_milestone(
+                    logger,
+                    "pre_streaming_guardrail_triggered",
+                    user_id=request.user_id,
+                    details={
+                        "detection_type": pre_validation.detection_type,
+                        "conversation_id": conversation_id,
+                    },
+                )
+                # Stream the friendly guardrail message
+                friendly_message = pre_validation.message
+                chunk_size = 10
+                for i in range(0, len(friendly_message), chunk_size):
+                    delta = friendly_message[i : i + chunk_size]
+                    yield f"data: {json.dumps({'content': delta})}\n\n"
+                yield f"data: {json.dumps({'status': 'completed', 'guardrail_triggered': pre_validation.detection_type})}\n\n"
+                yield "data: [DONE]\n\n"
+                return
+            
             # Initialize state with working memory
             initial_state = create_initial_state(request, conversation_id, working_memory)
 
