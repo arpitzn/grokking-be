@@ -80,6 +80,7 @@ jobs:
             docker ps | grep ${{ env.CONTAINER_NAME }}
             
             echo "🧹 Cleaning up build directory..."
+            cd /home/ubuntu
             rm -rf $BUILD_DIR
             docker image prune -f
             
@@ -87,20 +88,19 @@ jobs:
             sleep 5
             
             echo "🧪 Setting up promptfoo on host..."
-            PROMPTFOO_DIR="/home/ubuntu/grokking-be/promptfoo"
+            REPO_DIR="/home/ubuntu/grokking-be/repo"
             
             # Clone or update the repo for promptfoo
-            if [ -d "$PROMPTFOO_DIR" ]; then
-              echo "📥 Updating existing promptfoo directory..."
-              cd $PROMPTFOO_DIR && git pull origin ${{ github.event.inputs.BRANCH_TO_BUILD }} || true
+            if [ -d "$REPO_DIR" ]; then
+              echo "📥 Updating existing repo directory..."
+              cd $REPO_DIR && git fetch origin && git reset --hard origin/${{ github.event.inputs.BRANCH_TO_BUILD }} || true
             else
               echo "📥 Cloning repo for promptfoo..."
               mkdir -p /home/ubuntu/grokking-be
-              git clone --depth 1 --branch ${{ github.event.inputs.BRANCH_TO_BUILD }} ${{ env.REPO_URL }} /home/ubuntu/grokking-be/repo
-              cd /home/ubuntu/grokking-be/repo
+              git clone --depth 1 --branch ${{ github.event.inputs.BRANCH_TO_BUILD }} ${{ env.REPO_URL }} $REPO_DIR
             fi
             
-            cd /home/ubuntu/grokking-be/repo
+            cd $REPO_DIR
             
             # Install dependencies if needed
             if [ ! -d "node_modules" ]; then
