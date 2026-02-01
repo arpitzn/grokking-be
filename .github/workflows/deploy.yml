@@ -79,19 +79,46 @@ jobs:
             echo "✅ Container started successfully!"
             docker ps | grep ${{ env.CONTAINER_NAME }}
             
+            echo "🧹 Cleaning up build directory..."
+            rm -rf $BUILD_DIR
+            docker image prune -f
+            
             echo "⏳ Waiting for container to be ready..."
             sleep 5
             
-            echo "🧪 Running promptfoo evaluations..."
-            docker exec ${{ env.CONTAINER_NAME }} npm run promptfoo:eval:planner || echo "⚠️ planner eval failed or not available"
-            docker exec ${{ env.CONTAINER_NAME }} npm run promptfoo:eval:executor || echo "⚠️ executor eval failed or not available"
+            echo "🧪 Setting up promptfoo on host..."
+            PROMPTFOO_DIR="/home/ubuntu/grokking-be/promptfoo"
+            
+            # Clone or update the repo for promptfoo
+            if [ -d "$PROMPTFOO_DIR" ]; then
+              echo "📥 Updating existing promptfoo directory..."
+              cd $PROMPTFOO_DIR && git pull origin ${{ github.event.inputs.BRANCH_TO_BUILD }} || true
+            else
+              echo "📥 Cloning repo for promptfoo..."
+              mkdir -p /home/ubuntu/grokking-be
+              git clone --depth 1 --branch ${{ github.event.inputs.BRANCH_TO_BUILD }} ${{ env.REPO_URL }} /home/ubuntu/grokking-be/repo
+              cd /home/ubuntu/grokking-be/repo
+            fi
+            
+            cd /home/ubuntu/grokking-be/repo
+            
+            # Install dependencies if needed
+            if [ ! -d "node_modules" ]; then
+              echo "📦 Installing npm dependencies..."
+              npm install
+            fi
+            
+            echo "▶️ Running planner evaluation..."
+            npm run promptfoo:eval:planner || echo "⚠️ planner eval failed"
+            
+            echo "▶️ Running executor evaluation..."
+            npm run promptfoo:eval:executor || echo "⚠️ executor eval failed"
             
             echo "👀 Starting promptfoo view (background on port 15500)..."
-            docker exec -d ${{ env.CONTAINER_NAME }} npm run promptfoo:view || echo "⚠️ promptfoo view failed or not available"
-            
-            echo "🧹 Cleaning up..."
-            rm -rf $BUILD_DIR
-            docker image prune -f
+            # Kill any existing promptfoo view process
+            pkill -f "promptfoo view" || true
+            nohup npm run promptfoo:view > /tmp/promptfoo-view.log 2>&1 &
+            echo "✅ promptfoo view started on port 15500"
           ENDSSH
 
       - name: Cleanup SSH Key
