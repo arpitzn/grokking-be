@@ -69,6 +69,7 @@ async def planner_node(state: AgentState) -> AgentState:
     system_prompt, user_prompt = get_prompts(
         "planner_agent",
         {
+            "persona": case.get('persona', 'customer'),
             "raw_text": case.get('raw_text', ''),
             "turn_number": str(len(conversation_messages) // 2 + 1 if conversation_messages else 1),
             "issue_type": intent.get('issue_type', 'unknown'),
