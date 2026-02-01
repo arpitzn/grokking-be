@@ -50,12 +50,16 @@ async def insert_message(
     await db.messages.insert_one(message)
     
     # Update conversation message count and updated_at
+    # Only count user messages
+    update_op = {
+        "$set": {"updated_at": datetime.now(UTC)}
+    }
+    if role == "user":
+        update_op["$inc"] = {"message_count": 1}
+    
     await db.conversations.update_one(
         {"_id": conversation_id},
-        {
-            "$inc": {"message_count": 1},
-            "$set": {"updated_at": datetime.now(UTC)}
-        }
+        update_op
     )
     
     return message_id
@@ -141,3 +145,22 @@ async def list_threads(user_id: str) -> List[Dict[str, Any]]:
         })
     
     return result
+
+
+async def delete_conversation(conversation_id: str) -> bool:
+    """Delete a conversation and all related records"""
+    db = await get_mongodb_client()
+    
+    # Delete in order: support_tickets, summaries, messages, conversation
+    await db.support_tickets.delete_many({"conversation_id": conversation_id})
+    await db.summaries.delete_many({"conversation_id": conversation_id})
+    await db.messages.delete_many({"conversation_id": conversation_id})
+    result = await db.conversations.delete_one({"_id": conversation_id})
+    
+    logger.info(json.dumps({
+        "event": "conversation_deleted",
+        "conversation_id": conversation_id,
+        "deleted": result.deleted_count > 0
+    }))
+    
+    return result.deleted_count > 0

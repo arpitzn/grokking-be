@@ -118,12 +118,14 @@ async def chat_stream(request: CaseRequest):
         log_business_milestone(
             logger, "conversation_creation_start", user_id=request.user_id
         )
-        conversation_id = await create_conversation(request.user_id)
+        # Use first user message as title (truncate to 100 chars)
+        title = request.message[:100].strip() if request.message.strip() else "New Conversation"
+        conversation_id = await create_conversation(request.user_id, title=title)
         log_business_milestone(
             logger,
             "conversation_created",
             user_id=request.user_id,
-            details={"conversation_id": conversation_id},
+            details={"conversation_id": conversation_id, "title": title},
         )
 
     # Build working memory (summary + recent messages)

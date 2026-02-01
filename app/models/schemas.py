@@ -172,3 +172,56 @@ class IncidentBanner(BaseModel):
     severity: str
     message: str
     action_required: bool
+
+
+class UserByPersonaRequest(BaseModel):
+    """Request schema for user resolution by persona"""
+    
+    persona: str = Field(..., description="User persona: area_manager, customer_care_rep, or end_customer")
+    sub_category: Optional[str] = Field(
+        None, 
+        description="Sub-category for end_customer: platinum, standard, or high_risk. Ignored for other personas."
+    )
+
+
+class UserByPersonaResponse(BaseModel):
+    """Response schema for user resolution by persona"""
+    
+    user_id: Optional[str] = Field(None, description="Resolved user_id, or null if no users found")
+    persona: str = Field(..., description="Persona that was queried")
+    sub_category: Optional[str] = Field(None, description="Sub-category (only for end_customer)")
+
+
+class EscalatedTicketItem(BaseModel):
+    """Schema for escalated ticket item"""
+    
+    ticket_id: str
+    user_id: Optional[str] = None
+    ticket_type: str
+    issue_type: str
+    subtype: Optional[Dict[str, Any]] = None
+    severity: int  # 1 or 2
+    scope: str
+    order_id: Optional[str] = None
+    restaurant_id: Optional[str] = None
+    affected_zones: List[str] = []
+    affected_city: Optional[str] = None
+    title: str
+    description: str
+    status: str
+    created_at: str
+    updated_at: str
+    timestamp: str
+    related_orders: List[str] = []
+    related_tickets: List[str] = []
+    agent_notes: List[str] = []
+    resolution_history: List[Dict[str, Any]] = []
+    resolution: Optional[str] = None
+
+
+class EscalatedTicketsResponse(BaseModel):
+    """Response schema for escalated tickets endpoint"""
+    
+    tickets: List[EscalatedTicketItem]
+    count: int
+    total: int
