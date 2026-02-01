@@ -90,9 +90,13 @@ async def upload_multiple_files(
             
             # Get MIME type
             mime_type = file.content_type
-            if not mime_type:
-                mime_type, _ = mimetypes.guess_type(file.filename or "")
-                mime_type = mime_type or "application/octet-stream"
+            # If missing or generic binary type, try to guess from filename
+            if not mime_type or mime_type == "application/octet-stream":
+                guessed_type, _ = mimetypes.guess_type(file.filename or "")
+                if guessed_type:
+                    mime_type = guessed_type
+                elif not mime_type:  # Only use octet-stream if we had no content_type at all
+                    mime_type = "application/octet-stream"
             
             # Ingest file with shared filters
             result = await ingest_file(

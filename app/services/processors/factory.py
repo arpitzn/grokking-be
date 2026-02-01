@@ -1,5 +1,6 @@
 """Processor factory for routing files to correct processor based on MIME type"""
 import mimetypes
+import os
 import logging
 from typing import Optional
 from app.services.processors.base import BaseProcessor
@@ -45,6 +46,15 @@ class ProcessorFactory:
                 for processor in self.processors:
                     if processor.can_process(guessed_type):
                         return processor
+        
+        # Final fallback: If still no processor and MIME type is generic, try extension
+        if mime_type == "application/octet-stream" and filename:
+            file_ext = os.path.splitext(filename)[1].lower()
+            if file_ext:
+                processor = self.get_processor_by_extension(file_ext)
+                if processor:
+                    logger.info(f"Found processor by extension {file_ext} for filename {filename}")
+                    return processor
         
         logger.warning(f"No processor found for MIME type: {mime_type}, filename: {filename}")
         return None
