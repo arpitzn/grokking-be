@@ -17,6 +17,7 @@ instructions:
 rails:
   input:
     flows:
+      # Pattern-based content safety detection (handled in Python before NeMo)
       # Jailbreak and harmful content detection using LLM self-check
       - self check input
       # PII detection using Presidio
@@ -30,6 +31,9 @@ rails:
       - self check hallucination
       # Mask any PII that might appear in output
       - mask sensitive data on output
+      # Domain-specific policy checks (handled in Python validate_output)
+      # Note: Domain checks (refund, SLA, policy, escalation) are implemented
+      # in Python methods and called from validate_output() for flexibility
 
   config:
     # Presidio-based PII Detection Configuration

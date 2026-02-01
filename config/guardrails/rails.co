@@ -80,3 +80,35 @@ define flow gratitude
 
 define bot express gratitude response
   "You're welcome! Is there anything else I can help you with?"
+
+# =============================================================================
+# DOMAIN-SPECIFIC GUARDRAILS (Food Delivery)
+# =============================================================================
+# Note: These flows are referenced in config.yml but actual enforcement
+# happens in Python methods (_check_refund_policy_compliance, etc.)
+# for better flexibility and performance.
+
+# Refund policy compliance check flow
+define flow refund_policy_check
+  # This flow is handled in Python validate_output() method
+  # Checks for unauthorized refund promises (>₹500 without approval)
+  # Checks for incorrect refund timelines
+
+# SLA compliance check flow
+define flow sla_compliance_check
+  # This flow is handled in Python validate_output() method
+  # Checks for incorrect timeline promises (e.g., "refund by tomorrow" for bank refunds)
+  # Ensures SLA mentions match actual policies (5-7 days for bank refunds)
+
+# Policy compliance check flow
+define flow policy_compliance_check
+  # This flow is handled in Python validate_output() method
+  # Checks for liability admission ("our fault", "we're responsible")
+  # Checks for blame shifting ("restaurant's fault", "rider's fault")
+  # Checks for competitor mentions (swiggy, zomato, etc.)
+
+# Escalation policy compliance check flow
+define flow escalation_policy_check
+  # This flow is handled in Python validate_output() method
+  # Checks for incorrect escalation promises (wrong escalation levels)
+  # Ensures escalation language matches policies
