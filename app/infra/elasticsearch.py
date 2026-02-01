@@ -104,23 +104,20 @@ class ElasticsearchClient:
         top_k: int = 3
     ) -> List[Dict[str, Any]]:
         """Search for similar chunks using kNN with user_id filter"""
-        search_body = {
-            "knn": {
-                "field": "embedding",
-                "query_vector": query_embedding,
-                "k": top_k,
-                "num_candidates": top_k * 10
-            },
-            "filter": {
-                "term": {"user_id": user_id}
-            },
-            "_source": ["content", "metadata"]
+        knn_query = {
+            "field": "embedding",
+            "query_vector": query_embedding,
+            "k": top_k,
+            "num_candidates": top_k * 10,
+            "filter": {"term": {"user_id": user_id}}
         }
         
         try:
             response = await self.client.search(
                 index=self.index_name,
-                body=search_body
+                knn=knn_query,
+                source=["content", "metadata"],
+                size=top_k
             )
             
             results = []
@@ -477,15 +474,15 @@ class ElasticsearchClient:
     async def search_policies(
         self,
         query: str,
-        filters: Dict[str, Any],
+        filters: Optional[Dict[str, Any]] = None,
         top_k: int = 5
     ) -> List[Dict[str, Any]]:
         """
-        Search policy documents using vector search with filters
+        Search policy documents using vector search
         
         Args:
             query: Search query string (will be embedded)
-            filters: Dict with keys: priority, category, issue_type
+            filters: Optional dict with keys: priority, category, issue_type (not used)
             top_k: Number of results to return
         
         Returns:
@@ -496,31 +493,20 @@ class ElasticsearchClient:
         llm_service = get_llm_service()
         query_embedding = await llm_service.embeddings(query, model="text-embedding-3-small")
         
-        # Build kNN search with filters
-        search_body = {
-            "knn": {
-                "field": "embedding",
-                "query_vector": query_embedding,
-                "k": top_k,
-                "num_candidates": top_k * 10
-            },
-            "filter": [],
-            "size": top_k,
-            "_source": ["content", "category", "priority", "issue_type", "metadata"]
+        # Build kNN query without filters
+        knn_query = {
+            "field": "embedding",
+            "query_vector": query_embedding,
+            "k": top_k,
+            "num_candidates": top_k * 10
         }
-        
-        # Add filters
-        if filters.get("priority"):
-            search_body["filter"].append({"term": {"priority": filters["priority"]}})
-        if filters.get("category"):
-            search_body["filter"].append({"term": {"category": filters["category"]}})
-        if filters.get("issue_type"):
-            search_body["filter"].append({"terms": {"issue_type": filters["issue_type"]}})
         
         try:
             response = await self.client.search(
                 index=self.index_name,
-                body=search_body
+                knn=knn_query,
+                source=["content", "category", "priority", "issue_type", "metadata"],
+                size=top_k
             )
             
             results = []

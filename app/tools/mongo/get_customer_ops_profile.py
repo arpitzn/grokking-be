@@ -8,7 +8,7 @@ Observability: Emits tool_call_started, tool_call_completed, tool_call_failed ev
 
 import logging
 from datetime import datetime, timezone
-from typing import Type
+from typing import Type, Union
 
 from bson import Binary, ObjectId
 from langchain_core.tools import BaseTool
@@ -21,6 +21,20 @@ from app.utils.uuid_helpers import string_to_mongo_id, binary_to_uuid
 from app.infra.mongo import get_mongodb_client
 
 logger = logging.getLogger(__name__)
+
+
+def safe_isoformat(value: Union[datetime, str, None]) -> Union[str, None]:
+    """
+    Safely convert datetime value to ISO format string.
+    Handles both datetime objects and already-formatted strings.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, str):
+        return value  # Already a string, return as-is
+    return str(value)  # Fallback for other types
 
 # Tool specification
 TOOL_SPEC = ToolSpec(
@@ -100,7 +114,7 @@ async def get_customer_ops_profile(customer_id: str) -> CustomerEvidenceEnvelope
             "avg_order_value": user_doc.get("avg_order_value"),
             "refund_count": user_doc.get("refund_count"),
             "refund_rate": user_doc.get("refund_rate"),
-            "last_order_date": user_doc.get("last_order_date").isoformat() if user_doc.get("last_order_date") else None,
+            "last_order_date": safe_isoformat(user_doc.get("last_order_date")),
             "preferred_cuisines": user_doc.get("preferred_cuisines", []),
             "vip_status": user_doc.get("vip_status", False)
         }

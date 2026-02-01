@@ -23,10 +23,10 @@ async def list_user_memories(user_id: str, limit: int = 50) -> List[Dict[str, An
     
     # Get Mem0 memories (semantic + episodic)
     try:
-        mem0_memories = await mem0_client.search(
-            query="",  # Empty query returns all (or use a generic query)
-            user_id=user_id,
-            limit=limit
+        # Use get_all() to retrieve all memories for the user
+        # This is the correct way to list all memories (not search with empty query)
+        mem0_memories = await mem0_client.get_all(
+            user_id=user_id
         )
         
         # Add Mem0 memories
@@ -39,7 +39,7 @@ async def list_user_memories(user_id: str, limit: int = 50) -> List[Dict[str, An
                 "metadata": mem.get("metadata", {})
             })
     except Exception as e:
-        logger.warning(f"Failed to fetch Mem0 memories: {e}")
+        logger.error(f"Failed to fetch Mem0 memories: {e}", exc_info=True)
     
     # Get conversation summaries from MongoDB
     try:

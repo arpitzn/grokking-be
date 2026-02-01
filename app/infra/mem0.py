@@ -194,6 +194,52 @@ class Mem0Service:
             logger.error(f"Mem0 search_memory error: {e}")
             return []
     
+    async def get_all(
+        self,
+        user_id: Optional[str] = None,
+        filters: Optional[Dict[str, Any]] = None,
+        limit: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get all memories for a user (or app-scoped if no user_id).
+        
+        Uses Mem0's get_all() method which is the correct way to list all memories
+        without requiring a search query.
+        
+        Args:
+            user_id: Optional user identifier for user-scoped memories
+            filters: Optional additional filters dict
+            limit: Optional maximum number of results
+        
+        Returns:
+            List of memory dicts
+        """
+        try:
+            # Build filters dict
+            mem0_filters = filters or {}
+            if user_id:
+                mem0_filters["user_id"] = user_id
+            # Always include app_id in filters
+            if self.app_id:
+                mem0_filters["app_id"] = self.app_id
+            
+            # Call get_all with filters
+            if limit:
+                result = await self.client.get_all(filters=mem0_filters, limit=limit)
+            else:
+                result = await self.client.get_all(filters=mem0_filters)
+            
+            # Handle response format
+            if isinstance(result, dict) and 'results' in result:
+                return result['results']
+            elif isinstance(result, list):
+                return result
+            else:
+                return []
+        except Exception as e:
+            logger.error(f"Mem0 get_all error: {e}", exc_info=True)
+            return []
+    
     async def close(self):
         """Close Mem0 client (if needed)"""
         # SDK handles cleanup automatically, but keeping for compatibility

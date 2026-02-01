@@ -8,7 +8,7 @@ Observability: Emits tool_call_started, tool_call_completed, tool_call_failed ev
 
 import logging
 from datetime import datetime, timezone
-from typing import List, Literal, Type
+from typing import List, Literal, Type, Union
 
 from bson import Binary, ObjectId
 from langchain_core.tools import BaseTool
@@ -21,6 +21,20 @@ from app.utils.uuid_helpers import string_to_mongo_id, binary_to_uuid
 from app.infra.mongo import get_mongodb_client
 
 logger = logging.getLogger(__name__)
+
+
+def safe_isoformat(value: Union[datetime, str, None]) -> Union[str, None]:
+    """
+    Safely convert datetime value to ISO format string.
+    Handles both datetime objects and already-formatted strings.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, str):
+        return value  # Already a string, return as-is
+    return str(value)  # Fallback for other types
 
 # Tool specification
 TOOL_SPEC = ToolSpec(
@@ -117,17 +131,17 @@ async def get_order_timeline(user_id: str, include: List[str]) -> OrderEvidenceE
             "restaurant_id": restaurant_id_val,
             "zone_id": zone_id_val,
             "status": order_doc.get("status"),
-            "created_at": order_doc.get("created_at").isoformat() if order_doc.get("created_at") else None,
+            "created_at": safe_isoformat(order_doc.get("created_at")),
             "events": [
                 {
-                    "timestamp": event.get("timestamp").isoformat() if event.get("timestamp") else None,
+                    "timestamp": safe_isoformat(event.get("timestamp")),
                     "event": event.get("event"),
                     "status": event.get("status")
                 }
                 for event in order_doc.get("events", [])
             ],
-            "estimated_delivery": order_doc.get("estimated_delivery").isoformat() if order_doc.get("estimated_delivery") else None,
-            "actual_delivery": order_doc.get("actual_delivery").isoformat() if order_doc.get("actual_delivery") else None,
+            "estimated_delivery": safe_isoformat(order_doc.get("estimated_delivery")),
+            "actual_delivery": safe_isoformat(order_doc.get("actual_delivery")),
             "delivery_delay_minutes": order_doc.get("delivery_delay_minutes")
         }
         
