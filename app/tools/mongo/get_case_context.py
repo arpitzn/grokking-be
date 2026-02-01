@@ -8,7 +8,7 @@ Observability: Emits tool_call_started, tool_call_completed, tool_call_failed ev
 
 import logging
 from datetime import datetime, timezone
-from typing import Type
+from typing import Type, Union
 
 from bson import Binary, ObjectId
 from langchain_core.tools import BaseTool
@@ -21,6 +21,20 @@ from app.utils.uuid_helpers import string_to_mongo_id, binary_to_uuid
 from app.infra.mongo import get_mongodb_client
 
 logger = logging.getLogger(__name__)
+
+
+def safe_isoformat(value: Union[datetime, str, None]) -> Union[str, None]:
+    """
+    Safely convert datetime value to ISO format string.
+    Handles both datetime objects and already-formatted strings.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, str):
+        return value  # Already a string, return as-is
+    return str(value)  # Fallback for other types
 
 # Tool specification
 TOOL_SPEC = ToolSpec(
@@ -117,7 +131,7 @@ async def get_case_context(case_id: str) -> CaseEvidenceEnvelope:
             "issue_type": ticket_doc.get("issue_type"),
             "subtype": ticket_doc.get("subtype", {}),
             "severity": ticket_doc.get("severity"),
-            "created_at": ticket_doc.get("created_at").isoformat() if ticket_doc.get("created_at") else None,
+            "created_at": safe_isoformat(ticket_doc.get("created_at")),
             "status": ticket_doc.get("status"),
             "related_orders": related_orders_str,
             "related_tickets": related_tickets_str,

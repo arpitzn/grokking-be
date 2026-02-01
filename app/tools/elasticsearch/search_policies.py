@@ -23,7 +23,7 @@ TOOL_SPEC = ToolSpec(
 )
 
 
-async def search_policies(query: str, filters: Dict, top_k: int) -> PolicyEvidenceEnvelope:
+async def search_policies(query: str, top_k: int = 5) -> PolicyEvidenceEnvelope:
     """
     Tool Responsibility:
     - Searches policy documents in Elasticsearch
@@ -36,14 +36,14 @@ async def search_policies(query: str, filters: Dict, top_k: int) -> PolicyEviden
     """
     emit_tool_event("tool_call_started", {
         "tool_name": "search_policies",
-        "params": {"query": query, "filters": filters, "top_k": top_k}
+        "params": {"query": query, "top_k": top_k}
     })
     
     try:
         from app.infra.elasticsearch import get_elasticsearch_client
         
         es_client = await get_elasticsearch_client()
-        results = await es_client.search_policies(query, filters, top_k)
+        results = await es_client.search_policies(query, {}, top_k)
         
         # Transform results to match expected format
         policy_results = []
@@ -71,7 +71,7 @@ async def search_policies(query: str, filters: Dict, top_k: int) -> PolicyEviden
             confidence=0.90 if policy_results else 0.0,
             data=policy_data,
             gaps=[] if policy_results else ["no_policies_found"],
-            provenance={"query": query, "top_k": top_k, "filters": filters},
+            provenance={"query": query, "top_k": top_k},
             tool_result=ToolResult(status=ToolStatus.SUCCESS, data=policy_data)
         )
         
@@ -106,16 +106,6 @@ class SearchPoliciesInput(BaseModel):
     query: str = Field(
         description="Search query. Example: 'refund policy for late deliveries'"
     )
-    filters: Dict = Field(
-        default_factory=dict,
-        description=(
-            "Optional filters:\n"
-            "- priority: 'high', 'medium', 'low'\n"
-            "- category: 'policy', 'guideline'\n"
-            "- issue_type: ['refund', 'delivery']\n"
-            "Example: {'priority': 'high'}"
-        )
-    )
     top_k: int = Field(
         default=5,
         ge=1,
@@ -127,14 +117,14 @@ class SearchPoliciesInput(BaseModel):
 class SearchPoliciesTool(BaseTool):
     """LangChain tool wrapper for search_policies"""
     name: str = "search_policies"
-    description: str = "Searches policy documents in Elasticsearch. Returns relevant policies, SOPs, and SLAs matching the query and filters."
+    description: str = "Searches policy documents in Elasticsearch. Returns relevant policies, SOPs, and SLAs matching the query."
     args_schema: Type[BaseModel] = SearchPoliciesInput
     
-    async def _arun(self, query: str, filters: Dict, top_k: int) -> str:
+    async def _arun(self, query: str, top_k: int = 5) -> str:
         """Async execution - returns JSON string of PolicyEvidenceEnvelope"""
-        result = await search_policies(query, filters, top_k)
+        result = await search_policies(query, top_k)
         return result.model_dump_json()
     
-    def _run(self, query: str, filters: Dict, top_k: int) -> dict:
+    def _run(self, query: str, top_k: int = 5) -> dict:
         """Sync execution - not supported for async tools"""
         raise NotImplementedError("This tool only supports async execution")
