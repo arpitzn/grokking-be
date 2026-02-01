@@ -14,6 +14,7 @@ env:
   EC2_USER: ubuntu
   CONTAINER_NAME: grokking-be
   CONTAINER_PORT: 8000
+  ADDITIONAL_PORT: 15500
   REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
 
 jobs:
@@ -72,10 +73,21 @@ jobs:
               --restart unless-stopped \
               --env-file /home/ubuntu/grokking-be/.env \
               -p ${{ env.CONTAINER_PORT }}:${{ env.CONTAINER_PORT }} \
+              -p ${{ env.ADDITIONAL_PORT }}:${{ env.ADDITIONAL_PORT }} \
               ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
             
             echo "✅ Container started successfully!"
             docker ps | grep ${{ env.CONTAINER_NAME }}
+            
+            echo "⏳ Waiting for container to be ready..."
+            sleep 5
+            
+            echo "🧪 Running promptfoo evaluations..."
+            docker exec ${{ env.CONTAINER_NAME }} npm run promptfoo:eval:planner || echo "⚠️ planner eval failed or not available"
+            docker exec ${{ env.CONTAINER_NAME }} npm run promptfoo:eval:executor || echo "⚠️ executor eval failed or not available"
+            
+            echo "👀 Starting promptfoo view (background on port 15500)..."
+            docker exec -d ${{ env.CONTAINER_NAME }} npm run promptfoo:view || echo "⚠️ promptfoo view failed or not available"
             
             echo "🧹 Cleaning up..."
             rm -rf $BUILD_DIR
